@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Pan Casero 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Simulador 3D para hacer pan en casa: pesa, mezcla, amasa, fermenta, forma y hornea tu propio pan.">
+<meta name="theme-color" content="#2a2522">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=DM+Mono:wght@400;500&family=Figtree:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="./css/styles.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud"></div>
+
+<div id="loading" class="loading">
+  <div class="loading__inner">
+    <div class="loading__plate" aria-hidden="true">
+      <div class="loaf">
+        <div class="loaf__steam"><i></i><i></i><i></i></div>
+        <div class="loaf__dough"></div>
+        <div class="loaf__tin"></div>
+      </div>
+    </div>
+    <h1 class="loading__title">Pan Casero 3D</h1>
+    <div class="loading__bar" role="progressbar" aria-label="Cargando la cocina" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
+      <span class="loading__fill"></span>
+    </div>
+    <p class="loading__text" aria-live="polite">Encendiendo el horno…</p>
+  </div>
+</div>
+
+<noscript>
+  <div class="panel noscript">Pan Casero 3D necesita JavaScript para funcionar. Actívalo en tu navegador y recarga la página para empezar a hornear.</div>
+</noscript>
+
+<!-- Si falla la carga de algún módulo, avisa en la pantalla de carga en vez de quedarse esperando. -->
+<script type="module" src="./js/main.js" onerror="var t=document.querySelector('.loading__text');if(t)t.textContent='No se pudo cargar el simulador. Comprueba la conexión y recarga la página.';"></script>
+</body>
+</html>
