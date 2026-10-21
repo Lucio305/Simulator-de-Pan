@@ -1,0 +1,12 @@
+{
+  "name": "pan-casero-3d",
+  "version": "1.0.0",
+  "description": "Simulador 3D para hacer pan en el navegador (HTML, CSS y JavaScript con Three.js)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes serve -l 8080 .",
+    "test": "node --test tests/"
+  },
+  "license": "MIT"
+}
