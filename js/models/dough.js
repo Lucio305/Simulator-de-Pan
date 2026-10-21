@@ -901,7 +901,8 @@ export function createDough(ctx = {}) {
       }
       if (inTin) {
         const k = smoothstep(TIN.rim - 0.002, TIN.rim + 0.01, y);
-        const la = TIN.a + 0.005 * k, lc = TIN.c + 0.005 * k;
+        const flare = 0.0055 * (1 - clamp(y / TIN.rim)); // las paredes del molde se abren hacia arriba: abajo es más estrecho
+        const la = TIN.a - flare + 0.005 * k, lc = TIN.c - flare + 0.005 * k;
         if (x > la) x = la; else if (x < -la) x = -la;
         if (z > lc) z = lc; else if (z < -lc) z = -lc;
       }
@@ -966,6 +967,9 @@ export function createDough(ctx = {}) {
         const cav = clamp(dispArr[i] * 160, -0.5, 0.3) * rawW;
         const mott = (1 + (nL[i] * 0.02 + nM[i] * 0.015) * (0.4 + rough)) * (1 + cav * 0.35);
         cr = lerp(cr, 0.72, wetGrey) * mott; cg = lerp(cg, 0.7, wetGrey) * mott; cb = lerp(cb, 0.64, wetGrey) * mott;
+        // corte recién hecho: el fondo del tajo queda en sombra y se lee como un corte (solo en crudo)
+        const gk = grooveArr[i];
+        if (gk > 0) { const k = 1 - 0.34 * rawW * gk * gk; cr *= k; cg *= k; cb *= k; }
       }
       if (eggT) { // huevo: más saturado y brillante; en crudo, amarillento
         const l = 0.3 * cr + 0.59 * cg + 0.11 * cb;

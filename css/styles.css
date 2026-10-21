@@ -1004,6 +1004,9 @@ h1, h2, h3, p { margin: 0; }
   .result__title { font-size: 19px; }
   .result__actions .btn { flex: 1 1 auto; }
   .result__actions .btn--primary { flex-basis: 100%; }
+  /* el pan sigue a la vista por encima de la tarjeta; los botones quedan fijos abajo al desplazar */
+  .result { max-height: 66%; }
+  .result__actions { position: sticky; bottom: -14px; z-index: 1; margin: 12px -16px -14px; padding: 10px 16px 14px; background: var(--enamel); border-top: 1.5px dashed var(--cobalt-tint); }
   .dialog { padding: 18px 18px 16px; }
   .dialog__actions .btn { flex: 1 1 auto; }
 }

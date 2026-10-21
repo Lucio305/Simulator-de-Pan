@@ -1505,6 +1505,7 @@ function createItem(id, built, env) {
   let active = false, s = 0, sVel = 0, flow = 0, remaining = def.capacity, time = 0;
   let onset = pour.onset ?? pour.minOnset, pourTilt = onset + pour.margin, onsetFrac = -1, lastFrac = -1, posed = false;
   let audioLoop = null, audioTried = false, puffTimer = 0, warned = false;
+  let throttle = 1, throttleGoal = 1; // chorrito fino (setThrottle): menos inclinación y menos caudal
 
   const fraction = () => (built.liquid ? (remaining * 1e-6) / fill.volume : built.full * (remaining / def.capacity));
   const rotate = (yaw, tilt) => q.multiplyQuaternions(qa.setFromAxisAngle(TILT_AXIS, tilt), qb.setFromAxisAngle(UP, yaw));
@@ -1523,7 +1524,7 @@ function createItem(id, built, env) {
       tilt = pour.pre * smoothstep(0.45, 1, e);
       rotate(lerpAngle(homeYaw, POUR_YAW, smoothstep(0.05, 0.85, e)), tilt);
     } else {
-      tilt = lerp(pour.pre, pourTilt, b);
+      tilt = lerp(pour.pre, pourTilt - pour.margin * 0.4 * (1 - throttle), b);
       rotate(POUR_YAW, tilt + (pour.shake ? Math.sin(time * 11) * pour.shake * b : 0));
       root.copy(spout).applyQuaternion(q);
       root.subVectors(goal, root);
@@ -1587,6 +1588,8 @@ function createItem(id, built, env) {
         built.onPose?.(s);
         if (s > 1 && remaining > 0) flow = smoothstep(onset - 2 * DEG, onset + pour.margin * 0.55, tilt);
       }
+      throttle = damp(throttle, throttleGoal, 6, dt);
+      flow *= throttle;
       if (flow > 0) remaining = Math.max(0, remaining - flow * def.maxRate * dt);
       object.updateWorldMatrix(true, false);
       spoutW.copy(spout).applyMatrix4(object.matrixWorld);
@@ -1627,12 +1630,19 @@ function createItem(id, built, env) {
       active = !!on;
       if (targetWorld?.isVector3) wanted.copy(targetWorld);
     },
+    /**
+     * Limita el caudal (0.05..1; 1 = normal). Con menos de 1 se inclina algo menos y sale un chorrito
+     * fino: sirve para afinar los últimos gramos. El cambio es suave.
+     * @param {number} k01
+     */
+    setThrottle(k01) { if (Number.isFinite(k01)) throttleGoal = clamp(k01, 0.05, 1); },
     /** Pulso luminoso suave para indicar que se puede pulsar. */
     setHighlight(on) { highlighter.set(!!on); },
     /** Lo devuelve a casa al instante y lo rellena. */
     reset() {
       active = false;
       s = sVel = flow = 0;
+      throttle = throttleGoal = 1;
       remaining = def.capacity;
       onsetFrac = -1;
       posed = false;
