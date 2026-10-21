@@ -1,9 +1,41 @@
 // Clase base de las etapas del juego. Cada etapa dirige cámara, modelos e interfaz mientras está activa.
 import * as THREE from 'three';
 import { arcMove } from '../core/anim.js';
+import { hydration } from '../recipe.js';
 
 /** Velocidades de cámara rápida (minutos simulados por segundo real). */
 export const TIME_SPEEDS = { pause: 0, normal: 5, fast: 15 };
+
+/** Peso total que marca la báscula (el agua pesa 1 g/ml y el aceite 0,92 g/ml). */
+export function totalGrams(a) {
+  return (a.flour || 0) + (a.water || 0) + (a.yeast || 0) + (a.salt || 0) + (a.sugar || 0) + (a.oil || 0) * 0.92;
+}
+
+/**
+ * Cortes predefinidos (greñado) en coordenadas locales XZ de la masa, en metros.
+ * @param {'cross'|'diagonals'|'long'} pattern
+ * @param {'boule'|'baguette'|'loaf'|'ball'} shape
+ * @returns {THREE.Vector2[][]}
+ */
+export function scorePattern(pattern, shape) {
+  const V = (x, z) => new THREE.Vector2(x, z);
+  const line = (x0, z0, x1, z1, n = 8) => Array.from({ length: n + 1 }, (_, i) => V(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n));
+  const long = shape === 'baguette' || shape === 'loaf';
+  if (pattern === 'cross') {
+    const r = long ? 0.05 : 0.055;
+    return [line(-r, 0, r, 0), line(0, -r, 0, r)];
+  }
+  if (pattern === 'diagonals') {
+    if (long) {
+      const xs = shape === 'loaf' ? [-0.07, 0, 0.07] : [-0.12, -0.04, 0.04, 0.12];
+      return xs.map((x) => line(x - 0.032, 0.011, x + 0.032, -0.011));
+    }
+    return [-0.035, 0, 0.035].map((z) => line(-0.05, z - 0.012, 0.05, z + 0.012));
+  }
+  // Un corte largo: a lo largo de la barra/molde, en arco suave en la hogaza.
+  if (long) return [line(shape === 'loaf' ? -0.09 : -0.15, 0, shape === 'loaf' ? 0.09 : 0.15, 0, 12)];
+  return [Array.from({ length: 13 }, (_, i) => { const a = -0.9 + (1.8 * i) / 12; return V(Math.sin(a) * 0.06, -Math.cos(a) * 0.03 + 0.012); })];
+}
 
 export class Stage {
   /** @param {import('../game.js').Game} game */
@@ -52,6 +84,29 @@ export class Stage {
   /** Instrucción principal; el consejo solo aparece en modo guiado. */
   instruct(title, text, tip) {
     this.ui.setInstruction({ title, text, tip: this.guided ? tip : undefined });
+  }
+
+  /** Hidratación actual de la masa (agua/harina, contando la harina extra del amasado). */
+  get hydration() {
+    const a = this.state.amounts;
+    return hydration({ ...a, flour: (a.flour || 0) + (this.state.knead?.extraFlour || 0) }) || 0.65;
+  }
+
+  /** Opciones para recipe.bakeStep() a partir del estado de la partida. */
+  bakeOpts(ovenC) {
+    const s = this.state, a = s.amounts, flour = a.flour || 0;
+    return {
+      ovenC,
+      steam: !!s.bake.steam,
+      eggwash: String(s.shape.topping).includes('eggwash'),
+      sugarPct: flour > 0 ? ((a.sugar || 0) / flour) * 100 : 0,
+      yeastPct: flour > 0 ? ((a.yeast || 0) / flour) * 100 : 0,
+      shape: s.shape.shape,
+      proofP: s.proof2.p,
+      proofIdeal: this.bread.proof2Ideal,
+      gluten: s.knead.gluten,
+      scored: (s.shape.scores || 0) > 0,
+    };
   }
 
   /** Banda ideal de un medidor (solo en modo guiado). */

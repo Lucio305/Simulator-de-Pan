@@ -22,8 +22,10 @@ function hasWebGL() {
   }
 }
 
+let ui = null;
+
 async function boot() {
-  const ui = createUI();
+  ui = createUI();
   if (!hasWebGL()) {
     ui.showError('Tu navegador no puede mostrar gráficos 3D',
       'Pan Casero 3D necesita WebGL. Prueba con una versión reciente de Chrome, Edge, Firefox o Safari, o activa la aceleración por hardware.');
@@ -62,17 +64,37 @@ async function boot() {
 
   const game = new Game({ engine, ui, audio, particles, models });
   window.__pan = game;
-  engine.start();
+
+  // Parámetros de desarrollo/pruebas:
+  //   ?manual=1  no arranca el bucle; window.__advance(segundos) avanza el tiempo y dibuja al final.
+  //   ?stage=<id>&bread=<id>  salta directamente a una etapa (completando las anteriores).
+  const params = new URLSearchParams(location.search);
+  if (params.has('manual')) {
+    window.__advance = async (seconds = 1, step = 1 / 30) => {
+      for (let t = 0; t < seconds; t += step) {
+        engine.tick(step, false);
+        await new Promise((r) => setTimeout(r, 0)); // deja correr las continuaciones de las promesas
+      }
+      engine.render();
+    };
+  } else {
+    engine.start();
+  }
   ui.setLoading(1, '¡Listo!');
   await nextFrame();
   ui.hideLoading();
-  await game.start();
+  const stage = params.get('stage');
+  if (stage) {
+    await game.skipTo(stage, { breadId: params.get('bread') || 'hogaza', guided: params.get('guided') !== '0' });
+  } else {
+    await game.start();
+  }
 }
 
 boot().catch((e) => {
   console.error(e);
   try {
-    createUI().showError('No se pudo abrir la cocina', 'Ha ocurrido un error al cargar el simulador. Recarga la página para intentarlo de nuevo.');
+    (ui ?? createUI()).showError('No se pudo abrir la cocina', 'Ha ocurrido un error al cargar el simulador. Recarga la página para intentarlo de nuevo.');
   } catch {
     document.body.insertAdjacentHTML('beforeend', '<p style="position:fixed;inset:auto 16px 16px;color:#fff">No se pudo cargar Pan Casero 3D. Recarga la página.</p>');
   }

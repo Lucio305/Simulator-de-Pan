@@ -1,5 +1,5 @@
 // Orquestador del juego: estado de la partida, etapas, reloj simulado y entrada del jugador.
-import { BREADS, STAGES } from './recipe.js';
+import { BREADS, STAGES, initialProof, initialBake } from './recipe.js';
 import { CAMERAS } from './core/layout.js';
 import { cancelAnimations, wait } from './core/anim.js';
 import { IngredientsStage } from './stages/ingredients.js';
@@ -32,14 +32,12 @@ export function createInitialState(breadId, guided = true) {
     amounts: { flour: 0, water: 0, yeast: 0, salt: 0, sugar: 0, oil: 0 },
     mix: 0,
     knead: { gluten: 0, strokes: 0, extraFlour: 0, windowpane: false },
-    proof1: { minutes: 0, tempC: ROOM_TEMP, p: 0, rise: 1, collapse: 0, spot: 'encimera' },
+    proof1: { ...initialProof(ROOM_TEMP), spot: 'encimera' },
     shape: { shape: bread.shape, scores: 0, topping: 'none' },
-    proof2: { minutes: 0, tempC: 24, p: 0, rise: 1, collapse: 0 },
+    proof2: initialProof(24),
     oven: { tempC: ROOM_TEMP, targetC: bread.bake?.tempC ?? 220, on: false, doorOpen: false },
-    bake: {
-      targetC: bread.bake?.tempC ?? 220, preheated: false, steam: false,
-      minutes: 0, crust: 0, internalC: 24, spring: 1, doorOpenings: 0,
-    },
+    // bake guarda el objeto completo de recipe.bakeStep() más los datos de la partida
+    bake: { ...initialBake(24), targetC: bread.bake?.tempC ?? 220, preheated: false, steam: false, doorOpenings: 0 },
     result: null,
     clockMinutes: 8 * 60 + 30, // la partida empieza a las 8:30 de la mañana
   };

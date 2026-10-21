@@ -104,8 +104,8 @@ export class Engine {
 
   stop() { this._running = false; cancelAnimationFrame(this._raf); }
 
-  /** Avanza un frame (lo usa el bucle; las pruebas pueden llamarlo a mano). */
-  tick(dt) {
+  /** Avanza un frame (lo usa el bucle; las pruebas pueden llamarlo a mano sin dibujar). */
+  tick(dt, render = true) {
     this.elapsed += dt;
     updateAnimations(dt);
     for (const fn of [...this.updaters]) {
@@ -125,8 +125,11 @@ export class Engine {
         this.camera.lookAt(this.cameraTarget);
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    if (render) this.renderer.render(this.scene, this.camera);
   }
+
+  /** Dibuja el frame actual sin avanzar el tiempo. */
+  render() { this.renderer.render(this.scene, this.camera); }
 
   resize() {
     const w = this.container.clientWidth || window.innerWidth;
