@@ -9,24 +9,69 @@ import { createTools } from './models/tools.js';
 import { createIngredients } from './models/ingredients.js';
 import { createDough } from './models/dough.js';
 import { Game } from './game.js';
+import { createQuality } from './quality.js';
 
 /** Deja respirar al navegador para que pinte la barra de carga. */
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
-function hasWebGL() {
+/** Comprueba WebGL y si el navegador lo dibuja por software (sin la tarjeta gráfica). */
+function probeWebGL() {
   try {
     const c = document.createElement('canvas');
-    return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return { ok: false, software: false };
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return { ok: true, software: /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name) };
   } catch {
-    return false;
+    return { ok: false, software: false };
   }
+}
+
+/** Nivel de calidad guardado por el jugador ('auto' si no eligió ninguno). */
+function savedQuality() {
+  try { return localStorage.getItem('pan-casero-3d:calidad') || 'auto'; } catch { return 'auto'; }
+}
+
+/**
+ * Crea ya las piezas que la masa monta a demanda (semillas, mitades cortadas) y las dibuja una vez
+ * tras la pantalla de carga: así sus shaders se compilan ahora y no dan un tirón en mitad del juego.
+ */
+async function prewarm(engine, models) {
+  const { dough, tools } = models;
+  const g = dough.group;
+  const pos = g.position.clone();
+  const wasVisible = g.visible;
+  g.visible = true;
+  g.position.set(engine.cameraTarget.x, 0.92, engine.cameraTarget.z);
+  dough.set({ shape: 'boule', bake: 0.8 });
+  dough.setTopping('eggwash+sesame');
+  dough.setCut(1, { openness: 0.5, density: 0.5, gumminess: 0, tunnels: 0 });
+  dough.update(0, 0);
+  const hidden = [tools.tin, tools.coolingRack].filter((t) => t && !t.object.visible);
+  hidden.forEach((t) => t.show());
+  // compileAsync compila en paralelo (KHR_parallel_shader_compile) sin congelar la pantalla de carga
+  if (engine.renderer.extensions.has('KHR_parallel_shader_compile')) {
+    await engine.renderer.compileAsync(engine.scene, engine.camera).catch(() => {});
+  } else {
+    engine.renderer.compile(engine.scene, engine.camera);
+  }
+  engine.render(); // sombras y piezas con planos de recorte: sus variantes se compilan al dibujar
+  hidden.forEach((t) => t.hide());
+  dough.setCut(0);
+  dough.reset();
+  dough.update(0, 0);
+  g.position.copy(pos);
+  g.visible = wasVisible;
 }
 
 let ui = null;
 
 async function boot() {
   ui = createUI();
-  if (!hasWebGL()) {
+  const gl = probeWebGL();
+  if (!gl.ok) {
     ui.showError('Tu navegador no puede mostrar gráficos 3D',
       'Pan Casero 3D necesita WebGL. Prueba con una versión reciente de Chrome, Edge, Firefox o Safari, o activa la aceleración por hardware.');
     return;
@@ -34,7 +79,10 @@ async function boot() {
 
   ui.setLoading(0.1, 'Encendiendo las luces de la cocina…');
   await nextFrame();
-  const engine = new Engine(document.getElementById('app'));
+  // Antialiasing (MSAA) solo en pantallas de densidad normal: en las de alta densidad la propia resolución
+  // ya suaviza los bordes y el MSAA cuesta mucho. Tampoco sin aceleración por hardware ni en calidad baja.
+  const antialias = !gl.software && savedQuality() !== 'baja' && (window.devicePixelRatio || 1) < 1.5;
+  const engine = new Engine(document.getElementById('app'), { quality: antialias ? 'high' : 'low' });
   const audio = createAudio();
   const particles = createParticles({ engine, scene: engine.scene, camera: engine.camera, renderer: engine.renderer });
   engine.scene.add(particles.group);
@@ -58,12 +106,21 @@ async function boot() {
   // Los ingredientes que caen en el bol viven dentro del bol.
   models.tools.bowl.anchors.contents.add(models.ingredients.bowlContents.group);
 
+  // Calidad gráfica (antes de compilar: el nivel decide qué luces y sombras hay).
+  const quality = createQuality({
+    engine, models,
+    onAutoChange: (tier) => ui.toast(`Calidad gráfica ajustada a «${tier}» para que vaya más fluido.`, { tone: 'info', duration: 4 }),
+  });
+
   ui.setLoading(0.85, 'Precalentando sombras y materiales…');
   await nextFrame();
-  engine.renderer.compile(engine.scene, engine.camera);
+  await prewarm(engine, models);
 
-  const game = new Game({ engine, ui, audio, particles, models });
+  const game = new Game({ engine, ui, audio, particles, models, quality });
   window.__pan = game;
+  if (quality.software) {
+    ui.toast('Tu navegador dibuja el 3D sin la tarjeta gráfica y irá lento. Activa la aceleración por hardware en su configuración.', { tone: 'warn', duration: 10 });
+  }
 
   // Parámetros de desarrollo/pruebas:
   //   ?manual=1  no arranca el bucle; window.__advance(segundos) avanza el tiempo y dibuja al final.

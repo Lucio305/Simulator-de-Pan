@@ -14,6 +14,8 @@ const MAX_SEEDS = 600;
 const MAX_DENTS = 12;
 const SESAME_TOAST = new THREE.Color(0x9a5a22);
 const DEFORM_KEYS = ['squash', 'stretch', 'stretchDir', 'rise', 'inTin']; // no cambian el color en crudo
+// Parámetros que cambian poco a poco (fermentar, hornear...): se reconstruyen a ritmo limitado.
+const SLOW_KEYS = new Set(['mix', 'smoothness', 'hydration', 'rise', 'collapse', 'bake', 'flour']);
 const SHAPES = ['shaggy', 'ball', 'boule', 'baguette', 'loaf'];
 const TOPPINGS = ['none', 'flour', 'sesame', 'poppy', 'eggwash'];
 const TIN = { a: SIZES.tin.length / 2 - 0.003, c: SIZES.tin.width / 2 - 0.003, rim: SIZES.tin.height }; // interior del molde
@@ -692,7 +694,10 @@ export function createDough(ctx = {}) {
 
   // --- estado ---
   const params = { ...DEFAULTS, stretchDir: new THREE.Vector2(1, 0) };
-  let dirty = true;
+  let dirty = true;                    // cambio inmediato (gestos, forma, cortes...)
+  let slowDirty = false;               // cambio gradual pendiente (se aplica como mucho cada minInterval)
+  let sinceBuild = 0;                  // segundos desde la última reconstrucción
+  let minInterval = 1 / 30;            // ver setRebuildRate()
   let colorDirty = true;               // el color no depende de amasar/estirar en crudo
   const baseOwned = makeBaseBuffers(n); // mezcla actual (transformación / desgreñada)
   let morphFrom = null;                // instantánea al empezar morphTo
@@ -1275,9 +1280,16 @@ export function createDough(ctx = {}) {
         params[k] = v;
       } else continue;
       if (!DEFORM_KEYS.includes(k)) colorDirty = true;
-      dirty = true;
+      if (SLOW_KEYS.has(k)) slowDirty = true; else dirty = true;
     }
     return api;
+  }
+
+  /** Reconstruye ya si hay cualquier cambio pendiente. */
+  function flush() {
+    if (!dirty && !slowDirty) return;
+    dirty = false; slowDirty = false; sinceBuild = 0;
+    rebuild();
   }
 
   function finishMorph(ok) {
@@ -1312,7 +1324,7 @@ export function createDough(ctx = {}) {
    */
   function dent(localPoint, { radius = 0.03, depth = 0.012, recovery = 1.5 } = {}) {
     if (!localPoint) return;
-    if (dirty) { dirty = false; rebuild(); }
+    flush();
     // dirección de empuje = normal del vértice más cercano
     let best = 0, bd = Infinity;
     for (let j = 0; j < posArr.length; j += 3) {
@@ -1408,7 +1420,7 @@ export function createDough(ctx = {}) {
     if (active && !cut.active) {
       ensureCutParts();
       cut.active = true;
-      if (dirty) { dirty = false; rebuild(); } else buildCutCaps();
+      if (dirty || slowDirty) flush(); else buildCutCaps();
       syncCutSeeds();
     } else if (!active && cut.active) {
       cut.active = false;
@@ -1452,7 +1464,8 @@ export function createDough(ctx = {}) {
         d.amp = amp;
         if (d.age > 0.07 && amp < 0.00015) { dents.splice(i, 1); dirty = true; }
       }
-      if (dirty) { dirty = false; rebuild(); }
+      sinceBuild += dt;
+      if (dirty || (slowDirty && sinceBuild >= minInterval)) flush();
       // masa viva: respiración sutil + gelatina al tocarla
       const alive = 1 - smoothstep(0.05, 0.25, params.bake);
       jiggle.v += (-140 * jiggle.x - 7 * jiggle.v) * dt;
@@ -1470,10 +1483,12 @@ export function createDough(ctx = {}) {
 
   const api = {
     group, mesh, params, update, set, morphTo, dent, addScore, clearScores, setTopping, setCut, reset,
-    /** Altura local de la parte más alta. */
-    getTopY: () => { if (dirty) { dirty = false; rebuild(); } return topY; },
+    /** Altura local de la parte más alta. Con fresh=false no fuerza los cambios graduales pendientes (lecturas por frame). */
+    getTopY: (fresh = true) => { if (fresh || dirty) flush(); return topY; },
     /** Tamaño actual {x, y, z} en metros (pan entero). */
-    getSize: () => { if (dirty) { dirty = false; rebuild(); } return { x: size.x, y: size.y, z: size.z }; },
+    getSize: (fresh = true) => { if (fresh || dirty) flush(); return { x: size.x, y: size.y, z: size.z }; },
+    /** Ritmo máximo (veces por segundo) al que se aplican los cambios graduales; 0 = cada frame. */
+    setRebuildRate: (hz) => { minInterval = hz > 0 ? 1 / hz : 0; },
     /** Pulso emisivo para indicar que se puede interactuar. */
     setHighlight: (on) => highlighter.set(!!on),
     get topping() { return topping; },
@@ -1481,6 +1496,7 @@ export function createDough(ctx = {}) {
   };
   rebuild();
   dirty = false;
+  slowDirty = false;
   warmShapes();
   return api;
 }

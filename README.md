@@ -19,7 +19,20 @@ python3 -m http.server 8080
 ```
 
 y abre <http://localhost:8080>. Necesita conexión a internet la primera vez para descargar Three.js y las fuentes.
-También funciona tal cual en GitHub Pages (Settings → Pages → rama del proyecto).
+
+También funciona tal cual en **GitHub Pages**: en *Settings → Pages* elige «Deploy from a branch», la rama del
+proyecto y la carpeta `/ (root)`. Cada vez que se sube un cambio a esa rama, la página se actualiza sola en un par
+de minutos. El archivo `.nojekyll` hace que GitHub publique los archivos tal cual.
+
+## Si va lento
+
+El juego mide la fluidez y se ajusta solo: baja la resolución interna si los frames tardan demasiado y, si no
+basta, pasa a una calidad menor (menos sombras y luces). También puedes elegir la calidad a mano con el botón
+del velocímetro de la barra superior (**Automática**, **Alta**, **Media** o **Baja**).
+
+Si aun así va a tirones, comprueba que el navegador usa la tarjeta gráfica: en Chrome, *Configuración → Sistema →
+«Usar aceleración por hardware cuando esté disponible»*. Sin ella el 3D se dibuja con el procesador y va muy lento;
+el juego lo detecta y lo avisa.
 
 ## Cómo se juega
 

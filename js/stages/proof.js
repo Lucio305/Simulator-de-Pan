@@ -417,7 +417,8 @@ export class ProofStage extends Stage {
    */
   clothBulge() {
     const { dough, tools } = this.models;
-    const top = dough.group.localToWorld(this.tmp.set(0, dough.getTopY(), 0));
+    // lectura por frame: sin forzar la reconstrucción de la masa (va a su propio ritmo)
+    const top = dough.group.localToWorld(this.tmp.set(0, dough.getTopY(false), 0));
     tools.bowl.object.worldToLocal(top);
     // altura de la masa sin fermentar (la masa crece en vertical ~ rise^0,28)
     this.baseTop ??= top.y / Math.pow(Math.max(1, this.state.proof1.rise), 0.28);

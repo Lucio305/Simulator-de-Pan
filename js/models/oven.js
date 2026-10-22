@@ -1013,11 +1013,12 @@ export function createOven(ctx = {}) {
   dome.position.set(CAV.x0 + 0.001, LAMP.y, LAMP.z);
   group.add(dome);
 
-  const lampLight = new THREE.PointLight(0xffd8a0, 0, 0.95, 2);
-  lampLight.position.set(CAV.x0 + 0.06, LAMP.y - 0.01, LAMP.z);
-  const heatLight = new THREE.PointLight(0xff6a24, 0, 0.9, 2);
-  heatLight.position.set(0, CAV.y1 - 0.05, RACK.z);
-  group.add(lampLight, heatLight);
+  // Una sola luz para la lámpara y las resistencias (cada luz encarece todos los materiales de la escena):
+  // su color mezcla ambos según lo que aporta cada uno.
+  const cavityLight = new THREE.PointLight(0xffd8a0, 0, 0.95, 2);
+  cavityLight.position.set(0, CAV.y1 - 0.05, RACK.z);
+  group.add(cavityLight);
+  const LAMP_COLOR = new THREE.Color(0xffd8a0), HEAT_COLOR = new THREE.Color(0xff6a24), mixColor = new THREE.Color();
 
   const lcdTex = makeCanvasTexture(LCD.px[0], LCD.px[1], () => {});
   const lcdCtx = lcdTex.image.getContext('2d');
@@ -1186,9 +1187,13 @@ export function createOven(ctx = {}) {
         s.heat = damp(s.heat, s.heatTarget, s.heatTarget > s.heat ? 0.9 : 0.55, d);
         const glow = Math.pow(s.heat, 1.4);
         const flicker = 1 + 0.035 * Math.sin(time * 7.3) * Math.sin(time * 2.9);
-        lampLight.intensity = s.lightLevel * LAMP_INTENSITY;
+        const lampI = s.lightLevel * LAMP_INTENSITY, heatI = glow * HEAT_INTENSITY * flicker;
+        cavityLight.intensity = lampI + heatI;
+        if (lampI + heatI > 1e-4) {
+          cavityLight.color.copy(LAMP_COLOR).multiplyScalar(lampI / (lampI + heatI))
+            .add(mixColor.copy(HEAT_COLOR).multiplyScalar(heatI / (lampI + heatI)));
+        }
         M.lampGlass.emissiveIntensity = s.lightLevel * 2.4;
-        heatLight.intensity = glow * HEAT_INTENSITY * flicker;
         M.element.emissiveIntensity = glow * 3.2 * flicker;
         M.element.color.setRGB(lerp(0.043, 0.16, glow), lerp(0.04, 0.045, glow), lerp(0.037, 0.03, glow));
         // el cristal deja ver más cuando hay luz dentro (lámpara o resistencias al rojo)

@@ -10,6 +10,7 @@ const ICONS = {
   sound: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/><path d="M18.2 6.3a8 8 0 0 1 0 11.4"/>',
   soundOff: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="m16 9.5 5 5m0-5-5 5"/>',
   camera: '<path d="M3.5 8.8c0-.9.7-1.6 1.6-1.6h2.3l1.5-2.4h6.2l1.5 2.4h2.3c.9 0 1.6.7 1.6 1.6v8.6c0 .9-.7 1.6-1.6 1.6H5.1c-.9 0-1.6-.7-1.6-1.6z"/><circle cx="12" cy="13" r="3.4"/>',
+  gauge: '<path d="M4.3 17.2a8.6 8.6 0 1 1 15.4 0"/><path d="M12 14.2l3.7-4.4"/><circle cx="12" cy="14.6" r="1.4"/><path d="M6.6 11.4l1.2.5M12 6.9v1.3M17.4 11.4l-1.2.5"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5"/><path d="M12 16.9v.1"/>',
   restart: '<path d="M4.5 12a7.5 7.5 0 1 0 2.3-5.4"/><path d="M4.5 4.5v4.2h4.2"/>',
   play: '<path d="M8 5.8v12.4a.6.6 0 0 0 .9.5l9.6-6.2a.6.6 0 0 0 0-1L8.9 5.3a.6.6 0 0 0-.9.5z"/>',
@@ -170,7 +171,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
   // Pantallas pequeñas (teléfono vertical u horizontal): la instrucción empieza plegada.
   const compactQuery = window.matchMedia?.('(max-width: 720px), (max-height: 500px)');
   const reducedMotion = () => !!motionQuery?.matches;
-  const handlers = { sound: new Set(), camera: new Set(), restart: new Set(), help: new Set() };
+  const handlers = { sound: new Set(), camera: new Set(), restart: new Set(), help: new Set(), quality: new Set() };
   const emit = (name) => handlers[name].forEach((fn) => safeCall(fn));
 
   // ---------- Región viva (lectores de pantalla) ----------
@@ -198,6 +199,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
   }, [icon(name)]);
   const btnSound = iconButton('soundOff', 'Sonido', () => emit('sound'), true);
   const btnCamera = iconButton('camera', 'Cámara libre', () => emit('camera'), true);
+  const btnQuality = iconButton('gauge', 'Calidad gráfica', () => emit('quality'));
   const btnHelp = iconButton('help', 'Ayuda', () => emit('help'));
   const btnRestart = iconButton('restart', 'Reiniciar', () => emit('restart'));
 
@@ -214,7 +216,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
       el('span', { class: 'brand brand-plate__name', text: 'Pan Casero 3D' }),
     ]),
     stepper,
-    el('div', { class: 'panel toolbar', role: 'toolbar', 'aria-label': 'Opciones' }, [btnSound, btnCamera, btnHelp, btnRestart]),
+    el('div', { class: 'panel toolbar', role: 'toolbar', 'aria-label': 'Opciones' }, [btnSound, btnCamera, btnQuality, btnHelp, btnRestart]),
   ]);
 
   // ---------- Instrucción ----------
@@ -1233,7 +1235,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     setBusy,
     setSound, setFreeCamera,
     onSoundToggle: subscribe('sound'), onCameraToggle: subscribe('camera'),
-    onRestart: subscribe('restart'), onHelp: subscribe('help'),
+    onRestart: subscribe('restart'), onHelp: subscribe('help'), onQuality: subscribe('quality'),
   };
   root.__panUI = api;
   return api;

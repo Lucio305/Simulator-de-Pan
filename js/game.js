@@ -45,11 +45,12 @@ export function createInitialState(breadId, guided = true) {
 
 export class Game {
   /**
-   * @param {{engine: import('./engine.js').Engine, ui: any, audio: any, particles: any,
+   * @param {{engine: import('./engine.js').Engine, ui: any, audio: any, particles: any, quality?: any,
    *          models: {kitchen: any, oven: any, tools: any, ingredients: any, dough: any}}} deps
    */
-  constructor({ engine, ui, audio, particles, models }) {
+  constructor({ engine, ui, audio, particles, models, quality }) {
     this.engine = engine;
+    this.quality = quality;
     this.ui = ui;
     this.audio = audio;
     this.particles = particles;
@@ -90,6 +91,7 @@ export class Game {
     });
     ui.onRestart?.(() => this.confirmRestart());
     ui.onHelp?.(() => this.showHelp());
+    ui.onQuality?.(() => this.showQuality());
 
     this.debug = {
       skipTo: (id) => this.skipTo(id),
@@ -262,6 +264,38 @@ export class Game {
         ].join('\n\n'),
         actions: [{ label: 'Entendido', variant: 'primary', value: 'ok' }],
       });
+    } finally {
+      this._modal--;
+    }
+  }
+
+  /** Diálogo de calidad gráfica: automática o un nivel fijo. */
+  async showQuality() {
+    const q = this.quality;
+    if (!q) return;
+    this._modal++;
+    try {
+      const mark = (m) => (q.mode === m ? 'check' : undefined);
+      const choice = await this.ui.showDialog({
+        title: 'Calidad gráfica',
+        body: [
+          q.describe() + '.',
+          'Si el juego va a tirones, elige «Media» o «Baja»: dibujan menos sombras y luces y bajan la resolución. '
+            + 'En «Automática» el juego mide la fluidez y se ajusta solo.',
+          q.software ? 'Tu navegador está dibujando el 3D sin la tarjeta gráfica, por eso va lento. Activa la aceleración por hardware en su configuración (en Chrome: Configuración → Sistema → «Usar aceleración por hardware cuando esté disponible») y reinícialo.' : '',
+        ].filter(Boolean).join('\n\n'),
+        actions: [
+          { label: 'Cerrar', variant: 'ghost', value: null },
+          { label: 'Baja', variant: 'secondary', value: 'baja', icon: mark('baja') },
+          { label: 'Media', variant: 'secondary', value: 'media', icon: mark('media') },
+          { label: 'Alta', variant: 'secondary', value: 'alta', icon: mark('alta') },
+          { label: 'Automática', variant: 'primary', value: 'auto', icon: mark('auto') },
+        ],
+      });
+      if (choice) {
+        q.setMode(choice);
+        this.ui.toast(choice === 'auto' ? 'Calidad automática: se ajustará a tu equipo.' : `Calidad ${q.TIERS[choice].label.toLowerCase()}.`, { tone: 'info' });
+      }
     } finally {
       this._modal--;
     }
