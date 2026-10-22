@@ -27,11 +27,15 @@ También funciona tal cual en GitHub Pages (Settings → Pages → rama del proy
 |---|---|
 | 1. Ingredientes | Mantén pulsado un recipiente (o el botón «Verter») para echarlo en el bol. La báscula marca los gramos: suelta al llegar a la cantidad de la receta. |
 | 2. Mezclar | Dibuja círculos sobre el bol con el ratón o el dedo (o mantén «Remover») hasta que no quede harina seca. |
-| 3. Amasar | Arrastra la masa para estirarla y suelta para plegarla. Si se pega, enharina. La prueba de la ventana te dice si el gluten está listo. |
-| 4. Fermentar | Tapa el bol, elige dónde reposa (encimera, junto al horno o nevera) y deja correr el tiempo. Haz la prueba del dedo y decide cuándo está lista. |
-| 5. Formar | Desgasifica, elige la forma (hogaza, barra o molde), deja el segundo levado, dibuja los cortes con la cuchilla y elige cobertura. |
-| 6. Hornear | Elige la temperatura y si quieres vapor, precalienta, mete el pan y vigila el color por el cristal. Tú decides cuándo sacarlo. |
-| 7. Resultado | Puntuación por etapas con consejos. Corta el pan para ver la miga. |
+| 3. Amasar | Arrastra la masa para estirarla y suelta para plegarla, con ritmo. Si se pega, «Enharinar». La «Prueba de la ventana» te dice si el gluten está listo. |
+| 4. Fermentar | Tapa el bol con el paño, elige dónde reposa (encimera, junto al horno o nevera) y deja correr el tiempo. Haz la «Prueba del dedo» y decide cuándo está lista. |
+| 5. Formar | Desgasifica, elige la forma (hogaza, barra o molde), deja el segundo levado, dibuja los cortes con la cuchilla (o usa un patrón) y elige cobertura. |
+| 6. Hornear | Elige la temperatura y si quieres vapor, precalienta, mete el pan y vigila el color por el cristal. Puedes abrir para mirar (el horno se enfría). Tú decides cuándo sacarlo. |
+| 7. Resultado | Puntuación por etapas con consejos concretos. Corta el pan para ver la miga. |
+
+**Teclado:** en Ingredientes, las teclas 1–6 o ←/→ eligen el ingrediente y la barra espaciadora vierte;
+en Mezclar y Amasar, la barra espaciadora remueve o amasa. Todos los gestos tienen también su botón en el panel inferior.
+El icono de la cámara activa la cámara libre (arrastrar para girar, rueda o pellizco para acercar).
 
 Hay tres panes: **hogaza rústica**, **baguette** y **pan de molde**, cada uno con su receta, tiempos y temperatura.
 El **modo guiado** muestra consejos y las zonas ideales en los medidores; sin él, juegas a ojo, como en casa.
