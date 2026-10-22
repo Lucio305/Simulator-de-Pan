@@ -304,6 +304,7 @@ uniform float uBake;
 uniform float uRough;
 uniform float uWet;
 uniform float uGloss;
+uniform float uFlourTop;
 varying vec3 vRest;
 varying vec2 vMask;
 float dHash(vec3 p) {
@@ -370,7 +371,9 @@ diffuseColor.rgb *= 1.0 + (1.0 - dCrust) * (dM0.y - 0.5) * 0.05;
 float dF = clamp(vMask.x, 0.0, 1.0);
 float dFlour = smoothstep(0.05, 0.95, dF + ((dM0.y - 0.5) * 0.7 + (dGrain - 0.5) * 0.8) * dF);
 vec3 dFlourCol = mix(vec3(0.9, 0.88, 0.84), vec3(0.74, 0.6, 0.44), smoothstep(0.75, 1.4, uBake));
-diffuseColor.rgb = mix(diffuseColor.rgb, dFlourCol * (0.94 + dGrain * 0.12), dFlour * 0.85);
+// cobertura de harina: al hornearse toma algo del color de la corteza y deja ver la corteza debajo
+dFlourCol = mix(dFlourCol, diffuseColor.rgb, 0.35 * smoothstep(0.2, 0.8, uBake) * uFlourTop);
+diffuseColor.rgb = mix(diffuseColor.rgb, dFlourCol * (0.94 + dGrain * 0.12), dFlour * mix(0.85, 0.65, uFlourTop));
 `;
 
 const GLSL_ROUGH = /* glsl */`
@@ -659,7 +662,7 @@ export function createDough(ctx = {}) {
   const earArr = new Float32Array(n);    // labio ("oreja") del corte
 
   const uniforms = {
-    uBake: { value: 0 }, uRough: { value: 1 }, uWet: { value: 0 }, uGloss: { value: 0 },
+    uBake: { value: 0 }, uRough: { value: 1 }, uWet: { value: 0 }, uGloss: { value: 0 }, uFlourTop: { value: 0 },
   };
   const material = createDoughMaterial(uniforms);
 
@@ -675,12 +678,12 @@ export function createDough(ctx = {}) {
   // sombra de contacto suave (ancla la masa a la superficie)
   const contactTex = makeCanvasTexture(128, 128, (c, w, h) => {
     const g = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.62, 'rgba(255,255,255,0.8)'); g.addColorStop(0.8, 'rgba(255,255,255,0.25)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.45, 'rgba(255,255,255,0.7)'); g.addColorStop(0.75, 'rgba(255,255,255,0.2)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     c.fillStyle = g; c.fillRect(0, 0, w, h);
   }, { srgb: false });
   const contact = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0x1c130c, alphaMap: contactTex, transparent: true, opacity: 0.45, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    new THREE.MeshBasicMaterial({ color: 0x1c130c, alphaMap: contactTex, transparent: true, opacity: 0.25, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   );
   contact.position.y = 0.0006;
   contact.renderOrder = 1;
@@ -820,7 +823,9 @@ export function createDough(ctx = {}) {
 
     // escalas globales (volumen ~ rise; la masa húmeda se aplana; colapso; amasado)
     const wet = clamp((p.hydration - 0.65) / 0.2, -0.6, 1.2);
-    const rH = lerp(Math.pow(rise, 0.36), 1, wLoaf), rV = Math.pow(rise, 0.28);
+    // la hogaza crece más hacia arriba (bola tensa): mismo volumen, menos anchura
+    const wBoule = p.shape === 'boule' ? me : (morph && morph.from === 'boule' ? 1 - me : 0);
+    const rH = lerp(Math.pow(rise, lerp(0.36, 0.24, wBoule)), 1, wLoaf), rV = Math.pow(rise, lerp(0.28, 0.52, wBoule));
     const hydH = lerp(1 + 0.13 * wet, 1, wLoaf), hydV = lerp(1 - 0.24 * wet, 1, wLoaf);
     const sq = clamp(p.squash), st = clamp(p.stretch);
     const qV = 1 - 0.5 * sq, qH = 1 / Math.sqrt(qV);
@@ -933,7 +938,8 @@ export function createDough(ctx = {}) {
 
     // ---------- color por vértice + máscaras (harina, interior del corte) ----------
     const eggT = tops.egg ? 1 : 0;
-    const flourAmt = Math.max(clamp(p.flour), tops.flour ? 0.7 : 0, p.shape === 'shaggy' ? (1 - mixv) * 0.8 : 0);
+    const flourAmt = Math.max(clamp(p.flour), p.shape === 'shaggy' ? (1 - mixv) * 0.8 : 0);
+    const flourTop = tops.flour ? 0.38 : 0; // cobertura: un velo, no manchas
     const rawW = 1 - smoothstep(0.05, 0.35, bake);
     const wetGrey = clamp(wet) * 0.3 * rawW;
     const needColor = colorDirty || bake > 0.02 || !!morph;
@@ -955,6 +961,12 @@ export function createDough(ctx = {}) {
         const cov = flourAmt * (0.3 + 0.7 * top * top);
         const u = clamp(0.5 + nFl[i] * 0.25);
         fm = smoothstep(1 - cov - 0.3, 1 - cov + 0.3, u) * flourAmt * (1 - clamp(gm * 2.5));
+      }
+      if (flourTop > 0) {
+        // espolvoreado: más en la corona, moteado fino (ruido de alta frecuencia) y nada en las greñas
+        const cov = flourTop * (0.15 + 0.85 * top * top * top);
+        const sp = clamp(0.5 + (0.8 * nF[i] + 0.25 * nFl[i]) * 0.3);
+        fm = Math.max(fm, cov * (0.75 + 1.1 * sp) * (1 - clamp(gm * 2.5)));
       }
       let b = bake * expo * (1 + 0.03 * nM[i]) * (1 - 0.28 * fm);
       b = lerp(b, bake * (0.45 + 0.3 * (1 - grooveArr[i])), clamp(gm * 1.3));
@@ -995,11 +1007,12 @@ export function createDough(ctx = {}) {
     uniforms.uRough.value = rough;
     uniforms.uWet.value = wet;
     uniforms.uGloss.value = eggT;
+    uniforms.uFlourTop.value = tops.flour ? 1 : 0;
     const sheen = lerp(0.55, 0.25, crustT);
     material.sheen = sheen;
     if (cutParts) { cutParts.L.mat.sheen = sheen; cutParts.R.mat.sheen = sheen; }
 
-    contact.scale.set(size.x * 1.1 + 0.006, 1, size.z * 1.1 + 0.006);
+    contact.scale.set(size.x * 0.95, 1, size.z * 0.95); // línea de contacto, no un disco alrededor
     contact.position.x = (minX + maxX) / 2; contact.position.z = (minZ + maxZ) / 2;
 
     if (seeds && seeds.mesh.visible) { if (seedsDirty) placeSeeds(); updateSeeds(); }

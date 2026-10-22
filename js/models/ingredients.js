@@ -21,6 +21,7 @@ const POUR_YAW = Math.atan2(-POUR_DIR.z, POUR_DIR.x);           // giro que apun
 const TILT_AXIS = new THREE.Vector3().crossVectors(UP, POUR_DIR).normalize();
 const TRAVEL_TIME = 1.0;                                         // s: de casa a encima del bol
 const TILT_TIME = 0.5;                                           // s: base para inclinar (+ según el ángulo)
+const UNTILT_TIME = 0.25;                                        // s: al soltar se endereza deprisa
 const DEFAULT_TARGET = SPOTS.scale.clone().add(new THREE.Vector3(0, SIZES.scaleHeight + BOWL.wall + 0.002, 0));
 
 const SANS_BLACK = '"Arial Black", "Arial Bold", Arial, Helvetica, sans-serif';
@@ -1506,6 +1507,7 @@ function createItem(id, built, env) {
   let onset = pour.onset ?? pour.minOnset, pourTilt = onset + pour.margin, onsetFrac = -1, lastFrac = -1, posed = false;
   let audioLoop = null, audioTried = false, puffTimer = 0, warned = false;
   let throttle = 1, throttleGoal = 1; // chorrito fino (setThrottle): menos inclinación y menos caudal
+  let releaseT = Infinity;            // s desde que se soltó (el chorro se corta en menos de 0,1 s)
 
   const fraction = () => (built.liquid ? (remaining * 1e-6) / fill.volume : built.full * (remaining / def.capacity));
   const rotate = (yaw, tilt) => q.multiplyQuaternions(qa.setFromAxisAngle(TILT_AXIS, tilt), qb.setFromAxisAngle(UP, yaw));
@@ -1569,7 +1571,7 @@ function createItem(id, built, env) {
       if (s <= 1e-4 && !active) target.copy(wanted); else target.lerp(wanted, 1 - Math.exp(-5 * dt));
       const dest = active ? 2 : 0, dir = Math.sign(dest - s);
       const tiltTime = TILT_TIME + (0.55 * (pourTilt - pour.pre)) / Math.PI;
-      const speed = 1 / ((dir > 0 ? s < 1 : s <= 1) ? TRAVEL_TIME : tiltTime);
+      const speed = 1 / ((dir > 0 ? s < 1 : s <= 1) ? TRAVEL_TIME : active ? tiltTime : UNTILT_TIME);
       sVel = dir === 0 ? 0 : damp(sVel, dir * speed, 10, dt);
       const prev = s;
       s = clamp(s + sVel * dt, 0, 2);
@@ -1590,6 +1592,8 @@ function createItem(id, built, env) {
       }
       throttle = damp(throttle, throttleGoal, 6, dt);
       flow *= throttle;
+      // al soltar deja de salir casi al instante: lo que cae después ya no te hace pasarte
+      if (!active) { releaseT += dt; flow *= 1 - smoothstep(0, 0.07, releaseT); }
       if (flow > 0) remaining = Math.max(0, remaining - flow * def.maxRate * dt);
       object.updateWorldMatrix(true, false);
       spoutW.copy(spout).applyMatrix4(object.matrixWorld);
@@ -1627,6 +1631,7 @@ function createItem(id, built, env) {
      * @param {THREE.Vector3} [targetWorld]
      */
     setPouring(on, targetWorld) {
+      if (active && !on) releaseT = 0;
       active = !!on;
       if (targetWorld?.isVector3) wanted.copy(targetWorld);
     },
@@ -1698,13 +1703,14 @@ function createBowlContents(shared) {
     n1[k] = fbm3(x * 2.2 + 3, z * 2.2, 1.3, 3) - 0.5;
     n2[k] = noise3(x * 9, z * 9, 4.1) - 0.5;
   }
+  // (algo más cálida y apagada que el esmalte crema del bol, para que el montón se distinga)
   const flourMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true, map: shared.flour, bumpMap: shared.flourBump, bumpScale: 1, roughness: 0.96,
-    sheen: 0.5, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xfff6e6),
+    sheen: 0.3, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xf4e6cc),
   });
   const flourMesh = noRaycast(new THREE.Mesh(mound.geometry, flourMat));
   flourMesh.receiveShadow = true;
-  const DRY = new THREE.Color(0xeee6d4), WET = new THREE.Color(0xcdbb98), OILY = new THREE.Color(0xd8b25a);
+  const DRY = new THREE.Color(0xe3d1b1), WET = new THREE.Color(0xbfa77d), OILY = new THREE.Color(0xd8b25a);
   const shape = (t, a, b) => Math.max(0, H * Math.pow(Math.cos((t * Math.PI) / 2), 1.4) * (1 + 0.38 * a) + 0.0022 * b * (1 - t));
   const flourH = (x, z) => {
     if (H <= 0) return 0;
@@ -1720,11 +1726,23 @@ function createBowlContents(shared) {
   };
 
   // --- agua: disco transparente con ondas ---
-  const waterMat = glassMaterial({ color: 0xcfe5ec, opacity: 0.3, edge: 0.45, roughness: 0.03, envMapIntensity: 1.4 });
+  const waterMat = glassMaterial({ color: 0x8fb2c0, opacity: 0.42, edge: 0.5, roughness: 0.02, envMapIntensity: 1.7 });
   waterMat.normalMap = shared.ripple.clone();
-  waterMat.normalScale.set(0.3, 0.3);
+  waterMat.normalScale.set(0.45, 0.45);
   const water = noRaycast(new THREE.Mesh(shared.disc, waterMat));
   water.renderOrder = 2;
+  // cerco mojado: el borde del agua oscurece el esmalte (se ve dónde llega aunque el agua sea clara)
+  const wetRing = noRaycast(new THREE.Mesh((() => {
+    const g = new THREE.RingGeometry(0.8, 1, 48, 1).rotateX(-Math.PI / 2);
+    const p = g.attributes.position, col = new Float32Array(p.count * 4);
+    for (let i = 0; i < p.count; i++) {
+      const a = smoothstep(0.8, 1, Math.hypot(p.getX(i), p.getZ(i)));
+      col.set([0.36, 0.3, 0.24, a * a], i * 4);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+    return g;
+  })(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false })));
+  wetRing.renderOrder = 3;
 
   // --- granos de levadura, sal y azúcar (una sola malla instanciada) ---
   const grainTotal = GRAIN_TYPES.reduce((n, g) => n + g.n, 0);
@@ -1794,7 +1812,7 @@ function createBowlContents(shared) {
     }
   }
 
-  group.add(flourMesh, water, grains, oilMesh, clumps);
+  group.add(flourMesh, water, wetRing, grains, oilMesh, clumps);
 
   function rebuild() {
     dirty = false;
@@ -1817,7 +1835,7 @@ function createBowlContents(shared) {
         pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
         uv[k * 2] = x * 2.5 + 0.5; uv[k * 2 + 1] = z * 2.5 + 0.5;
         const wet = Math.max(level > 0 ? smoothstep(level + 0.005, level - 0.002, h) : 0, wetMix);
-        c3.copy(DRY).lerp(WET, wet).multiplyScalar(lerp(0.78, 1, smoothstep(1, 0.5, t))); // pie del montón en sombra
+        c3.copy(DRY).lerp(WET, wet).multiplyScalar(lerp(0.55, 1, smoothstep(1, 0.45, t))); // pie del montón en sombra
         if (hasOil) c3.lerp(OILY, 0.55 * gone * (1 - smoothstep(Ro * 0.5, Ro * 1.05, Math.hypot(x - OIL_AT[0], z - OIL_AT[1]))));
         col[k * 3] = c3.r; col[k * 3 + 1] = c3.g; col[k * 3 + 2] = c3.b;
       }
@@ -1829,11 +1847,13 @@ function createBowlContents(shared) {
     }
 
     // agua
-    water.visible = level > 0.0012;
+    water.visible = wetRing.visible = level > 0.0012;
     if (water.visible) {
       const r = bowlInnerR(level) - 0.0008;
       water.position.y = level;
       water.scale.set(r, 1, r);
+      wetRing.position.y = level + 0.0003;
+      wetRing.scale.set(r, 1, r);
     }
 
     // granos

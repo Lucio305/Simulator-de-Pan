@@ -192,7 +192,9 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
   // ---------- Barra superior ----------
   const iconButton = (name, label, onClick, toggle = false) => el('button', {
     type: 'button', class: 'icon-btn', id: `hud-${slug(label)}`, 'aria-label': label, 'data-tip': label,
-    'aria-pressed': toggle ? 'false' : null, onclick: onClick,
+    'aria-pressed': toggle ? 'false' : null,
+    // como en el dock: tras un clic con el ratón, Espacio no debe volver a pulsar el icono
+    onclick: (e) => { if (e.detail > 0) e.currentTarget.blur(); onClick(); },
   }, [icon(name)]);
   const btnSound = iconButton('soundOff', 'Sonido', () => emit('sound'), true);
   const btnCamera = iconButton('camera', 'Cámara libre', () => emit('camera'), true);
@@ -290,6 +292,9 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     instrToggle.setAttribute('aria-expanded', String(!collapsed));
     instrToggle.setAttribute('aria-label', collapsed ? 'Mostrar la instrucción completa' : 'Plegar la instrucción');
   }
+  // Al girar el móvil o redimensionar, la instrucción se pliega o despliega con la pantalla
+  // (solo cuando cambia la consulta: no deshace a cada momento lo que eligió el jugador).
+  compactQuery?.addEventListener?.('change', (e) => { setCollapsed(e.matches); refreshLayout(); });
 
   // ---------- Modales (pila, foco atrapado, Escape) ----------
   const modals = [];
@@ -310,6 +315,8 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     if (i === modals.length && m.restore?.isConnected && !m.restore.closest('[inert]')) {
       try { m.restore.focus({ preventScroll: true }); } catch { /* sin foco */ }
     }
+    // sin un sitio al que volver, el foco no se queda en la capa que se va (Espacio vuelve a la escena)
+    if (layer.contains(document.activeElement)) document.activeElement.blur();
   }
   function focusables(layer) {
     const all = [...layer.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')];
@@ -609,8 +616,10 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     const list = data.rows.map((row, i) => ({ id: String(row.id ?? i), state: row.state }));
     const focus = list.find((x) => x.state === 'active') || list.find((x) => x.state !== 'ok') || list[list.length - 1];
     for (const [id, r] of rows) r.el.classList.toggle('is-focus', id === focus?.id);
-    const done = data.rows.filter((row) => row.state === 'ok').length;
-    const countText = `${done}/${data.rows.length} listos`;
+    // Las filas "no lleva" no cuentan, salvo que se haya echado algo de ese ingrediente.
+    const counted = data.rows.filter((row) => Number(row.target ?? 1) > 0 || Number(row.current) > 0);
+    const done = counted.filter((row) => row.state === 'ok').length;
+    const countText = `${done}/${counted.length} listos`;
     if (recipeCount.textContent !== countText) recipeCount.textContent = countText;
     recipeCard.hidden = false;
     refreshLayout();
@@ -742,7 +751,9 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     const label = el('span', { class: 'btn__label', text: spec.label ?? '' });
     const btn = el('button', { type: 'button', class: `btn btn--${variant}`, id: `ctl-${slug(spec.id)}` },
       [icon(spec.icon), label]);
-    btn.addEventListener('click', () => { if (!btn.disabled) safeCall(spec.onClick); });
+    // Con el ratón o el dedo el foco no se queda en el botón: así Espacio sigue siendo "mantener"
+    // (verter, remover, amasar) y no repite el clic. Con teclado (detail 0) el foco se mantiene.
+    btn.addEventListener('click', (e) => { if (e.detail > 0) btn.blur(); if (!btn.disabled) safeCall(spec.onClick); });
     const ctl = makeControl(spec, btn, (d) => { btn.disabled = d; });
     ctl.focus = () => btn.focus({ preventScroll: true });
     ctl.set = (p = {}) => {
@@ -871,7 +882,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
         'aria-checked': 'false', tabindex: '-1',
       }, [icon(opt.icon), el('span', { class: 'seg__label', text: opt.label ?? String(opt.value) }),
         opt.sub ? el('small', { class: 'seg__sub', text: opt.sub }) : null]);
-      b.addEventListener('click', () => select(opt.value, true));
+      b.addEventListener('click', (e) => { if (e.detail > 0) b.blur(); select(opt.value, true); });
       group.append(b);
       return b;
     });
@@ -906,13 +917,19 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
       buttons[next].focus();
     });
     select(value, false);
-    const wrap = el('div', { class: `ctl ctl--choice${options.length > 3 ? ' ctl--wide' : ''}` }, [labelEl, group]);
+    const wide = options.length > 3;
+    const wrap = el('div', { class: `ctl ctl--choice${wide ? ' ctl--wide' : ''}` }, [labelEl, group]);
     const ctl = makeControl(spec, wrap, (d) => {
       buttons.forEach((b) => { b.disabled = d; });
       wrap.classList.toggle('is-disabled', d);
     });
+    // En el móvil la fila ancha se desplaza: su borde derecho se difumina mientras quedan opciones.
+    const syncMore = () => group.classList.toggle('has-more', group.scrollWidth - group.scrollLeft - group.clientWidth > 2);
+    const ro = wide && typeof ResizeObserver === 'function' ? new ResizeObserver(syncMore) : null;
+    if (wide) group.addEventListener('scroll', syncMore, { passive: true });
+    ctl.destroy = () => ro?.disconnect();
     ctl.focus = () => (buttons.find((b) => b.tabIndex === 0) || buttons[0])?.focus({ preventScroll: true });
-    ctl.mounted = () => select(value, false);
+    ctl.mounted = () => { select(value, false); if (wide) { syncMore(); ro?.observe(group); } };
     ctl.set = (p = {}) => {
       if ('label' in p) labelEl.textContent = p.label ?? '';
       if ('value' in p) select(p.value, false);

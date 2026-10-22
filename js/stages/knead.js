@@ -20,6 +20,7 @@ const AUTO_PUSH = 0.34;              // …de la que 0,34 s son el empujón
 const AUTO_LEN = 0.13;               // largo del empujón automático (m)
 const AUTO_QUALITY = 0.8;
 const TAP_QUALITY = 0.4;
+const TAP_COOLDOWN = 0.5;            // toques más seguidos que esto no cuentan (machacar no amasa)
 const TURN_EVERY = 4;                // cuarto de vuelta cada 4 amasadas, como un panadero
 const FLOUR_STEP = 5;                // g por cada «Enharinar»
 const STICKY_MAX = 0.6;              // por encima se pega a la tabla y cunde menos
@@ -163,6 +164,9 @@ function makeStrokeGuide() {
 // Membrana de la prueba de la ventana
 // -------------------------------------------------------------------------------------------------
 
+const MEMBRANE_OPACITY = 0.72;       // película fina: deja ver a través
+
+/** Película de masa estirada entre dos yemas de dedo (mira siempre a la cámara). */
 function makeMembrane() {
   // alpha: película irregular, más gruesa en el borde; las zonas finas son las que se rasgan
   const alpha = makeCanvasTexture(192, 192, (g, w, h) => {
@@ -171,7 +175,9 @@ function makeMembrane() {
       for (let x = 0; x < w; x++) {
         const u = ((x + 0.5) / w) * 2 - 1, v = ((y + 0.5) / h) * 2 - 1;
         const r = Math.hypot(u, v), a = Math.atan2(v, u);
-        const edge = 0.84 + 0.22 * (fbm3(Math.cos(a) * 1.8 + 3, Math.sin(a) * 1.8, 1.3, 3) - 0.5);
+        // contorno deshilachado: ondas amplias y mellas pequeñas
+        const edge = 0.84 + 0.22 * (fbm3(Math.cos(a) * 1.8 + 3, Math.sin(a) * 1.8, 1.3, 3) - 0.5)
+          + 0.12 * (fbm3(Math.cos(a) * 7 + 11, Math.sin(a) * 7, 2.7, 2) - 0.5);
         let val = 0;
         if (r < edge) {
           const thick = fbm3(u * 2.6 + 7, v * 2.6, 4.2, 4);
@@ -194,21 +200,35 @@ function makeMembrane() {
     g.fillStyle = gr;
     g.fillRect(0, 0, w, h);
   });
-  // ligeramente abombada, como una burbuja de masa estirada
-  const geo = new THREE.CircleGeometry(0.05, 48);
+  // estirada a lo ancho (entre los dedos) y apenas abombada
+  const geo = new THREE.CircleGeometry(0.05, 64);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const r = Math.hypot(pos.getX(i), pos.getY(i)) / 0.05;
-    pos.setZ(i, 0.007 * (1 - r * r));
+    pos.setXYZ(i, pos.getX(i) * 1.1, pos.getY(i) * 0.72, 0.004 * (1 - r * r));
   }
   geo.computeVertexNormals();
   const mat = new THREE.MeshBasicMaterial({
-    color: 0xe9cf9f, alphaMap: alpha, transparent: true, opacity: 0.92, alphaTest: 0.02, side: THREE.DoubleSide, depthWrite: false,
+    color: 0xf2dfb8, alphaMap: alpha, transparent: true, opacity: MEMBRANE_OPACITY, alphaTest: 0.02, side: THREE.DoubleSide, depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'knead-windowpane';
   mesh.renderOrder = 12;
   mesh.raycast = () => {};
+  // dos yemas de dedo pellizcan los bordes (el otro extremo se desvanece: los dedos vienen de fuera)
+  const tipGeo = new THREE.CapsuleGeometry(0.0078, 0.03, 4, 12);
+  const tp = tipGeo.attributes.position, tc = new Float32Array(tp.count * 4);
+  for (let i = 0; i < tp.count; i++) tc.set([1, 1, 1, smoothstep(-0.023, -0.004, tp.getY(i))], i * 4);
+  tipGeo.setAttribute('color', new THREE.BufferAttribute(tc, 4));
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe7b08a, roughness: 0.6, envMapIntensity: 0.6, vertexColors: true, transparent: true });
+  for (const side of [-1, 1]) {
+    const tip = new THREE.Mesh(tipGeo, skin);
+    tip.position.set(side * 0.058, 0, 0.006);   // la yema (+Y local) apoyada en el borde de la película
+    tip.rotation.z = side * (Math.PI / 2 + 0.3);
+    tip.renderOrder = 13;
+    tip.raycast = () => {};
+    mesh.add(tip);
+  }
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), new THREE.MeshBasicMaterial({
     map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, toneMapped: false,
   }));
@@ -222,6 +242,7 @@ function makeMembrane() {
     dispose() {
       mesh.removeFromParent();
       geo.dispose(); mat.dispose(); alpha.dispose();
+      tipGeo.dispose(); skin.dispose();
       glow.geometry.dispose(); glow.material.dispose(); glowTex.dispose();
     },
   };
@@ -252,6 +273,7 @@ export class KneadStage extends Stage {
     this.yaw = 0;
     this.yawGoal = 0;
     this.lastStrokeAt = -Infinity;
+    this.lastTapAt = -Infinity;
     this.idle = 0;
     this.flourVis = 0.25;      // harina visible sobre la masa
     this.boardFlour = 0.6;
@@ -331,7 +353,7 @@ export class KneadStage extends Stage {
       this.fold = { t: 0, dur: 0.45, amp: 0.38, tilt: 0 };
     }
     this.ready = true;
-    this.lastStrokeAt = -Infinity;
+    this.lastStrokeAt = this.lastTapAt = -Infinity;
     this.refreshMeters(true);
     this.syncControls();
   }
@@ -425,14 +447,16 @@ export class KneadStage extends Stage {
     if (!force && key === this.metersKey) return;
     this.metersKey = key;
     const dry = k.extraFlour > EXTRA_WARN && s < 0.45;
+    // (de 0,45 al máximo sigue dentro de la banda ideal: algo pegajosa es normal, sin aviso;
+    // texto corto para que no se corte la etiqueta del medidor)
     const sText = s > STICKY_MAX ? 'Se pega' : dry ? 'Reseca' : s > 0.45 ? 'Algo pegajosa' : s > 0.15 ? 'Normal' : 'No se pega';
     this.ui.setMeters([
       { id: 'gluten', label: 'Desarrollo del gluten', value01: g, text: `${Math.round(g * 100)} %`, ideal: this.ideal(GLUTEN_IDEAL), tone: g >= GLUTEN_IDEAL[0] ? 'good' : 'neutral' },
-      { id: 'sticky', label: 'Pegajosidad', value01: s, text: sText, ideal: this.ideal([0.15, STICKY_MAX]),
-        tone: s > STICKY_MAX ? 'bad' : s > 0.45 || dry ? 'warn' : this.guided ? 'good' : 'neutral' },
+      { id: 'sticky', label: 'Pegajosidad', value01: s, text: sText, ideal: this.ideal([0, STICKY_MAX]),
+        tone: s > STICKY_MAX ? 'bad' : dry ? 'warn' : this.guided ? 'good' : 'neutral' },
     ]);
     const extra = k.extraFlour > 0 ? ` · ${Math.round(k.extraFlour)} g de harina extra` : '';
-    this.ui.setClock({ label: 'Amasando', text: formatMinutes(k.strokes * SIM_MIN_PER_STROKE), sub: `${k.strokes} amasadas${extra}` });
+    this.ui.setClock({ label: 'Amasando', text: formatMinutes(k.strokes * SIM_MIN_PER_STROKE), sub: `${k.strokes} ${k.strokes === 1 ? 'amasada' : 'amasadas'}${extra}` });
     this.ctl?.get('knead').set({ value: g });
   }
 
@@ -478,6 +502,19 @@ export class KneadStage extends Stage {
     const k = this.state.knead;
     const [lo, hi] = STROKE_IDEAL;
     const gap = this.time - this.lastStrokeAt;
+    if (tap) {
+      // toques muy seguidos: la masa se hunde y suena, pero no cuenta (ni amasada, ni reloj, ni gluten);
+      // cada toque reinicia la espera, así que machacar sin parar no suma nada
+      const sinceTap = this.time - Math.max(this.lastStrokeAt, this.lastTapAt);
+      this.lastTapAt = this.time;
+      if (sinceTap < TAP_COOLDOWN) {
+        if (local) dough.dent(local, { radius: 0.032, depth: 0.015, recovery: 0.9 });
+        this.startFold(0.2, 0, 0.3);
+        this.audio?.play('thump', { volume: 0.35, rate: 1.15 });
+        this.say('Presionar ayuda poco: mejor estira');
+        return;
+      }
+    }
     this.lastStrokeAt = this.time;
     this.idle = 0;
     const sticky = this.sticky();
@@ -614,13 +651,13 @@ export class KneadStage extends Stage {
     k.windowpane = true;
     const mem = this.membrane ??= makeMembrane();
     this.engine.scene.add(mem.mesh);
-    // la película sale de lo alto de la masa, de cara a la cámara
+    // la película sale de lo alto de la masa, de cara a la cámara, y queda bien por encima de ella
     const base = dough.group.localToWorld(V(0, dough.getTopY() - 0.01, 0));
-    const lift = base.clone().add(V(0, 0.05, 0.012));
+    const lift = base.clone().add(V(0, 0.085, 0.012));
     mem.mesh.visible = true;
     mem.mat.alphaTest = 0.02;
-    mem.mat.color.set(0xe9cf9f);
-    mem.mat.opacity = 0.92;
+    mem.mat.color.set(0xf2dfb8);
+    mem.mat.opacity = MEMBRANE_OPACITY;
     mem.glow.material.opacity = 0;
     this.goView('close', 0.9);
     this.audio?.play('whoosh', { volume: 0.25, rate: 0.8 });
@@ -633,10 +670,10 @@ export class KneadStage extends Stage {
     if (res.pass) {
       // la luz la atraviesa
       this.audio?.play('ding');
-      const c0 = new THREE.Color(0xe9cf9f), c1 = new THREE.Color(0xfff0d2);
+      const c0 = new THREE.Color(0xf2dfb8), c1 = new THREE.Color(0xfff3dc);
       ok = await animate({
         duration: 0.8, tag: TAG, ease: ease.outCubic,
-        onUpdate: (t) => { mem.mat.color.lerpColors(c0, c1, t); mem.glow.material.opacity = 0.55 * t; mem.mat.opacity = 0.92 - 0.3 * t; },
+        onUpdate: (t) => { mem.mat.color.lerpColors(c0, c1, t); mem.glow.material.opacity = 0.55 * t; mem.mat.opacity = MEMBRANE_OPACITY - 0.25 * t; },
       });
       if (!ok || this.leaving) return;
       this.particles?.sparkle(lift, { count: 26, spread: 0.06 });
@@ -644,7 +681,7 @@ export class KneadStage extends Stage {
     } else {
       // se rasga por las zonas más finas
       // (umbral sobre el grosor de la película: cuanto menos gluten, más agujeros)
-      const tear = g >= 0.62 ? 0.5 : g >= 0.35 ? 0.6 : 0.68;
+      const tear = (g >= 0.62 ? 0.54 : g >= 0.35 ? 0.65 : 0.74) * MEMBRANE_OPACITY;
       this.audio?.play('pop', { volume: 0.6 });
       ok = await animate({
         duration: 0.8, tag: TAG, ease: ease.outQuad,

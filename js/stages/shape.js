@@ -2,7 +2,8 @@
 // Tres fases en la misma etapa: forma (en la tabla) → segundo levado (bandeja o molde) → cortes y cobertura.
 import * as THREE from 'three';
 import { Stage, scorePattern } from './stage.js';
-import { proofStep, initialProof, idealProofMinutes, proofStatus, riseFromProgress } from '../recipe.js';
+import { BREADS, proofStep, initialProof, idealProofMinutes, proofStatus, riseFromProgress } from '../recipe.js';
+import { fitDough } from './bake.js';
 import { animate, ease, cancelAnimations } from '../core/anim.js';
 import { clamp, lerp, smoothstep, damp, formatMinutes, makeCanvasTexture } from '../core/utils.js';
 
@@ -15,7 +16,6 @@ const DEGASSED = 1.05;   // volumen de la masa tras desgasificarla
 const PRESSES = 3;       // aplastones para sacarle el gas
 const MAX_CUTS = 6;      // cortes como mucho
 const MIN_CUT = 0.02;    // un corte cuenta a partir de 2 cm
-const MAX_LEN = 0.42;    // la barra no puede pasar del largo útil de la bandeja (m)
 const EXTRA_MIN = 15;    // minutos de «Levar 15 min más»
 const MAX_PROOF = 240;   // tope del segundo levado (min)
 
@@ -200,6 +200,7 @@ export class ShapeStage extends Stage {
     // puntero
     this.hoverNdc = null;
     this.hoverDirty = false;
+    this.hoverAt = -1;
     this.hoverHit = null;
     this.hovering = false;
     this.glow = false;
@@ -321,7 +322,7 @@ export class ShapeStage extends Stage {
       shape, inTin: shape === 'loaf', rise: this.rise, collapse: proof.collapse,
       smoothness: Math.max(0.85, this.state.knead.gluten), flour: 0, squash: 0, stretch: 0,
     });
-    this.fitLength();
+    fitDough(dough); // la barra no puede pasar del largo de la bandeja (el mismo tope que al hornear)
     dough.getSize(); // reconstruye ya: los cortes se guardan a la escala actual
     const pattern = this.suggestedPattern();
     const cuts = pattern ? this.patternPaths(pattern) : [];
@@ -347,6 +348,12 @@ export class ShapeStage extends Stage {
     return { hogaza: 'la hogaza', baguette: 'la baguette', molde: 'el pan de molde' }[this.state.breadId] ?? 'este pan';
   }
 
+  /** Cortes que pide la forma que tiene la masa (como en la nota: una barra pide greñas aunque sea masa de molde). */
+  scoring() {
+    if (!this.shape || this.shape === this.bread.shape) return this.bread.scoring;
+    return Object.values(BREADS).find((b) => b.shape === this.shape)?.scoring ?? this.bread.scoring;
+  }
+
   /** 'la bandeja' o 'el molde'. */
   box() { return this.shape === 'loaf' ? 'el molde' : 'la bandeja'; }
 
@@ -360,14 +367,6 @@ export class ShapeStage extends Stage {
   flourPuff(count = 14, spread = 0.1) {
     const p = this.models.dough.group.getWorldPosition(V()).add(V(0, 0.012, 0));
     this.particles?.puff(p, { color: 0xf6efe2, count, spread, size: 0.013, life: 1.0 });
-  }
-
-  /** La barra no puede salirse de la bandeja: si al crecer pasa de MAX_LEN, se acorta un poco. */
-  fitLength() {
-    const { dough } = this.models;
-    if (this.shape !== 'baguette') { dough.group.scale.set(1, 1, 1); return; }
-    const s = dough.getSize();
-    dough.group.scale.set(Math.min(1, MAX_LEN / Math.max(s.x, 1e-3)), 1, 1);
   }
 
   /** Lleva la masa volando hasta `anchor` (si hace falta, primero sube en vertical) y la cuelga de él. */
@@ -697,7 +696,7 @@ export class ShapeStage extends Stage {
     this.goView('tray', 1.6);
     if (!(await this.fly(anchor, { lift: 0.02, height: 0.16, duration: 1.15 }))) return false;
     if (shape === 'loaf') dough.set({ inTin: true });
-    this.fitLength();
+    fitDough(dough);
     this.land(shape === 'loaf' ? 0 : 0.25);
     this.audio?.play('success', { volume: 0.8 });
     this.particles?.sparkle(this.doughTop(0.03), { count: 28, spread: 0.07 });
@@ -801,7 +800,7 @@ export class ShapeStage extends Stage {
     const { dough } = this.models;
     this.rise = Math.max(DEGASSED, this.proof.rise);
     dough.set({ rise: this.rise, collapse: this.proof.collapse });
-    this.fitLength();
+    fitDough(dough);
     this.setClockCard();
     this.refreshMeters();
   }
@@ -834,7 +833,7 @@ export class ShapeStage extends Stage {
   enterScore() {
     this.phase = 'score';
     this.engine.parallaxEnabled = false; // la cámara quieta: dibujar los cortes tiene que ser preciso
-    const sc = this.bread.scoring;
+    const sc = this.scoring();
     const toppingTip = this.bread.toppings?.text ?? '';
     if (this.shape === 'loaf') {
       this.instruct('Decora el pan',
@@ -875,7 +874,7 @@ export class ShapeStage extends Stage {
 
   /** Dibujo de cortes recomendado para esta forma que encaja con lo que pide la receta (o null). */
   suggestedPattern() {
-    const { min, max } = this.bread.scoring;
+    const { min, max } = this.scoring();
     if (this.shape === 'loaf' && min === 0) return null;
     const order = {
       boule: ['cross', 'diagonals', 'long'], baguette: ['diagonals', 'long', 'cross'], loaf: ['long', 'cross', 'diagonals'],
@@ -885,7 +884,7 @@ export class ShapeStage extends Stage {
 
   /** Cortes de un dibujo en XZ local, escalados a lo que ha crecido la masa. */
   patternPaths(name) {
-    const k = this.shape === 'loaf' ? 1 : Math.pow(Math.max(1, this.rise), 0.36);
+    const k = this.shape === 'loaf' ? 1 : Math.pow(Math.max(1, this.rise), this.shape === 'boule' ? 0.24 : 0.36);
     return scorePattern(name, this.shape).map((path) => path.map((q) => q.clone().multiplyScalar(k)));
   }
 
@@ -927,7 +926,12 @@ export class ShapeStage extends Stage {
 
   /** Rayo contra la masa; con topOnly solo vale la cara de arriba. */
   hitDough(ndc, topOnly = false) {
-    const hit = this.engine.raycast(ndc, this.models.dough.mesh, false)[0];
+    // prueba barata con la caja: el rayo contra la malla (~30k triángulos) cuesta milisegundos
+    const { mesh } = this.models.dough;
+    this.engine.raycaster.setFromCamera(ndc, this.engine.camera);
+    this.doughBox ??= new THREE.Box3();
+    if (!this.engine.raycaster.ray.intersectsBox(this.doughBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld))) return null;
+    const hit = this.engine.raycast(ndc, mesh, false)[0];
     if (!hit) return null;
     if (topOnly && (hit.face?.normal.y ?? 1) < 0.2) return null;
     return hit;
@@ -1224,7 +1228,7 @@ export class ShapeStage extends Stage {
   /** «Al horno»: en modo guiado avisa si faltan o sobran cortes. */
   async toOven() {
     if (this.phase !== 'score' || this.busy || this.leaving || this.asking) return;
-    const sc = this.bread.scoring;
+    const sc = this.scoring();
     if (this.guided) {
       let warn = null;
       if (this.shape !== 'loaf' && this.cuts === 0 && sc.min > 0) {
@@ -1236,7 +1240,7 @@ export class ShapeStage extends Stage {
       } else if (this.cuts > sc.max) {
         warn = {
           title: 'Demasiados cortes',
-          body: `Llevas ${this.cuts} cortes y ${this.breadName()} pide ${sc.min === 0 ? `como mucho ${sc.max}` : `${sc.min}–${sc.max}`}: la superficie quedará como un acordeón y subirá menos.`,
+          body: `Llevas ${this.cuts} cortes y ${this.shape === this.bread.shape ? this.breadName() : SHAPES[this.shape]?.the ?? this.breadName()} pide ${sc.min === 0 ? `como mucho ${sc.max}` : `${sc.min}–${sc.max}`}: la superficie quedará como un acordeón y subirá menos.`,
           stay: 'Revisar cortes', go: 'Hornear así',
         };
       }
@@ -1295,7 +1299,7 @@ export class ShapeStage extends Stage {
         ideal: this.ideal([v01(riseFromProgress(lo).rise), v01(riseFromProgress(hi).rise)]),
       });
       if (ph === 'score') {
-        const { min, max } = this.bread.scoring;
+        const { min, max } = this.scoring();
         const inRange = this.cuts >= min && this.cuts <= max;
         list.push({
           id: 'cuts', label: 'Cortes', value01: this.cuts / MAX_CUTS,
@@ -1380,10 +1384,11 @@ export class ShapeStage extends Stage {
     if (this.drag && ev.pointerId === this.drag.id) this.endDrag(true);
   }
 
-  /** Como mucho un rayo por frame para el ratón que pasa por encima. */
+  /** Rayos limitados para el ratón que pasa por encima (~12 por segundo; algo más al greñar, que la cuchilla lo sigue). */
   updateHover(dt) {
-    if (this.hoverDirty) {
+    if (this.hoverDirty && !this.drag && this.time - this.hoverAt > (this.phase === 'score' ? 0.05 : 0.08)) {
       this.hoverDirty = false;
+      this.hoverAt = this.time;
       const ph = this.phase;
       const active = this.hoverNdc && !this.drag && !this.busy && this.canPoint()
         && (ph === 'degas' || ph === 'shape' || ph === 'proof' || ph === 'score');

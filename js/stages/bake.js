@@ -10,7 +10,8 @@ import { clamp, damp, smoothstep, formatMinutes } from '../core/utils.js';
 export const BAKE_SPEEDS = { pause: 0, normal: 1, fast: 4 };
 const TEMP_MIN = 150, TEMP_MAX = 260;
 const DOOR_SIM_SPEED = 0.3;   // min simulados por segundo mientras la puerta está abierta (que no se enfríe de golpe)
-const MAX_LEN = 0.44;         // largo máximo del pan en la bandeja y el horno (cavidad de 0,5 m)
+/** Largo máximo del pan (m): el mismo al formar, en la bandeja, en el horno y en la rejilla. */
+export const MAX_LEN = 0.42;
 const STEAM_END = [8, 12];    // el vapor se disipa entre estos minutos
 const TAG = 'bake-stage';
 const UP = new THREE.Vector3(0, 1, 0);
@@ -210,7 +211,7 @@ export class BakeStage extends Stage {
   /** Texto con la ventana ideal de horneado (modo guiado). */
   windowTip() {
     const s = this.state, b = this.bread;
-    const w = idealBakeWindow(b.id, { ovenC: s.oven.targetC, steam: this.steam, eggwash: String(s.shape.topping).includes('eggwash') });
+    const w = idealBakeWindow(b.id, { ovenC: s.oven.targetC, steam: this.steam, eggwash: String(s.shape.topping).includes('eggwash'), shape: s.shape.shape });
     const at = `A ${s.oven.targetC} °C${this.steam ? ' con vapor' : ''}`;
     if (!w.minutes) return `${at} será difícil que quede bien: la receta pide ${b.bake.tempC} °C.`;
     return `${at} estará en su punto entre los ${w.minutes[0]} y los ${w.minutes[1]} min.`;
@@ -334,7 +335,7 @@ export class BakeStage extends Stage {
     };
     this.flags.ready = true;
     this.syncControls();
-    this.instruct('Al horno', `Abre la puerta, desliza ${this.boxName} hasta la rejilla y cierra rápido para que no se escape el calor.`);
+    this.instruct('Al horno', `Abrimos la puerta, metemos ${this.boxName} en la rejilla y cerramos rápido para que no se escape el calor.`);
     const obj = this.container.object;
     this.goView('load', 1.3);
     this.doorBusy = true;
@@ -564,7 +565,7 @@ export class BakeStage extends Stage {
     // apagado o con el pan fuera, el tiempo va al ritmo real; precalentando y horneando, en cámara rápida
     const k = p === 'baking' || p === 'unloading' ? BAKE_SPEEDS[this.speed]
       : p === 'preheat' || p === 'loading' ? TIME_SPEEDS[this.speed] : 1 / 60;
-    if (this.dialogOpen) return 0; // el tiempo se detiene mientras el jugador decide
+    if (this.dialogOpen || this.game.simPaused) return 0; // el tiempo se detiene mientras el jugador decide (o lee la ayuda)
     return this.doorBusy ? Math.min(k, DOOR_SIM_SPEED) : k;
   }
 
@@ -716,15 +717,18 @@ export class BakeStage extends Stage {
 
   showPreheatInfo() {
     const o = this.state.oven;
-    const ready = ovenStatus(o) === 'ready';
+    const loading = this.phase === 'loading';
+    const ready = !loading && ovenStatus(o) === 'ready';
     this.ui.setMeters([{
       id: 'oven', label: 'Temperatura del horno', value01: clamp(o.tempC / TEMP_MAX),
       ideal: this.ideal([(o.targetC - 6) / TEMP_MAX, (o.targetC + 6) / TEMP_MAX]),
-      text: `${Math.round(o.tempC)} °C`, tone: ready ? 'good' : o.on ? 'warn' : 'neutral',
+      text: `${Math.round(o.tempC)} °C`, tone: ready ? 'good' : o.on && !loading ? 'warn' : 'neutral',
     }]);
+    // mientras entra el pan, la puerta abierta enfría el horno: no es un precalentado ni un aviso
     this.ui.setClock(this.phase === 'setup'
       ? { label: 'Horno apagado', text: `${Math.round(o.tempC)} °C`, sub: `Objetivo: ${o.targetC} °C` }
-      : { label: ready ? 'Horno listo' : 'Precalentando', text: formatMinutes(Math.round(this.preheatMin)), sub: `${Math.round(o.tempC)} °C → ${o.targetC} °C` });
+      : loading ? { label: 'Metiendo el pan', text: `${Math.round(o.tempC)} °C`, sub: `Objetivo: ${o.targetC} °C` }
+        : { label: ready ? 'Horno listo' : 'Precalentando', text: formatMinutes(Math.round(this.preheatMin)), sub: `${Math.round(o.tempC)} °C → ${o.targetC} °C` });
   }
 
   // ---------------------------------------------------------------------------
@@ -734,16 +738,22 @@ export class BakeStage extends Stage {
   /** ¿Qué hay bajo el puntero? → {kind: 'tempKnob'|'modeKnob'|'door'|'bread', anchor: Vector3} | null */
   pick(ndc) {
     const { oven } = this.models;
-    const objs = [...oven.interactive];
-    if (this.phase === 'setup' || this.phase === 'preheat') objs.push(this.container.object);
-    const hits = this.engine.raycast(ndc, objs);
+    const hits = this.engine.raycast(ndc, oven.interactive);
+    // la bandeja (o el molde) con el pan: basta su caja; un rayo contra la malla de la masa cuesta milisegundos
+    let breadAt = Infinity;
+    if ((this.phase === 'setup' || this.phase === 'preheat') && this.container.object.visible) {
+      const ray = this.engine.raycaster.ray;
+      this.boxBounds ??= new THREE.Box3().setFromObject(this.container.object); // no se mueve hasta meterlo al horno
+      const p = ray.intersectBox(this.boxBounds, new THREE.Vector3());
+      if (p) breadAt = p.distanceTo(ray.origin);
+    }
     for (const h of hits) {
+      if (h.distance > breadAt) break;
       const part = h.object.userData.ovenPart;
       if (part === 'tempKnob' || part === 'modeKnob') return { kind: part, anchor: h.object.getWorldPosition(new THREE.Vector3()) };
-      if (part === 'door') return { kind: 'door', anchor: this.worldOf(oven.interactive[0]) };
-      if (h.object.visible !== false && !part) return { kind: 'bread', anchor: this.breadTop() };
+      if (part === 'door') return { kind: 'door', anchor: h.point.clone() }; // la pista junto al puntero, no en la bisagra
     }
-    return null;
+    return breadAt < Infinity ? { kind: 'bread', anchor: this.breadTop() } : null;
   }
 
   hintFor(kind) {
@@ -840,7 +850,7 @@ export class BakeStage extends Stage {
     const steam = bread.bake.steam !== 'no';
     Object.assign(this.state.bake, { targetC, steam, preheated: true, doorOpenings: 0 });
     const eggwash = String(this.state.shape.topping).includes('eggwash');
-    const win = idealBakeWindow(bread.id, { ovenC: targetC, steam, eggwash });
+    const win = idealBakeWindow(bread.id, { ovenC: targetC, steam, eggwash, shape: this.state.shape.shape });
     const minutes = win.minutes ? (win.minutes[0] + win.minutes[1]) / 2 : bread.bake.minutes[0];
     let bake = initialBake(24);
     const opts = this.bakeOpts(targetC);

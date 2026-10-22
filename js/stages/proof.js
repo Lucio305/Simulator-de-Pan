@@ -18,34 +18,44 @@ const RISE_RANGE = [1, 2.6];   // escala del medidor de volumen
 const CLOTH_TOP = SIZES.bowl.height + 0.0016;
 const CLOTH_SAG = 0.014;
 const DOME_GAIN = 2.2;         // el abombamiento del paño exagera lo que sube la masa (si no, apenas se ve)
+const UNCOVER_LIFT = 1.8;      // s que tarda el paño (tools.js · uncover) en levantarse y doblarse sobre el bol
 
 const riseTo01 = (r) => clamp((r - RISE_RANGE[0]) / (RISE_RANGE[1] - RISE_RANGE[0]));
 const dec = (v, digits = 1) => v.toFixed(digits).replace('.', ',');
 
-/** Dedo estilizado para la prueba del dedo (la punta en el origen, apuntando a -Y). */
+/**
+ * Dedo para la prueba del dedo (la punta en el origen, el dedo hacia +Y y la uña hacia +Z).
+ * Corto, con la yema redondeada y algo más estrecha; el otro extremo se desvanece para que no
+ * llegue al borde de la pantalla.
+ */
 function makeFinger() {
   const group = new THREE.Group();
   group.name = 'proof-finger';
-  const skin = new THREE.MeshStandardMaterial({ color: 0xe7b08a, roughness: 0.6, envMapIntensity: 0.6 });
-  const nailMat = new THREE.MeshStandardMaterial({ color: 0xf6d2c2, roughness: 0.25, envMapIntensity: 0.8 });
-  const r = 0.0085, len = 0.26; // largo: entra desde fuera del encuadre, como si fuera de tu mano
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 18), skin);
-  body.position.y = len / 2 + r;
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe7b08a, roughness: 0.6, envMapIntensity: 0.6, vertexColors: true, transparent: true });
+  const nailMat = new THREE.MeshStandardMaterial({ color: 0xf0b4aa, roughness: 0.3, envMapIntensity: 0.8, transparent: true });
+  const r = 0.0088, len = 0.085;
+  // perfil desde la punta: media esfera algo estrecha y luego se ensancha poco a poco
+  const pts = [];
+  const rt = r * 0.82;
+  for (let i = 0; i <= 8; i++) { const a = (i / 8) * (Math.PI / 2); pts.push(new THREE.Vector2(Math.sin(a) * rt, rt * (1 - Math.cos(a)))); }
+  for (let i = 1; i <= 14; i++) { const y = rt + (i / 14) * (len - rt); pts.push(new THREE.Vector2(lerp(rt, r, smoothstep(rt, 0.035, y)), y)); }
+  const geo = new THREE.LatheGeometry(pts, 24);
+  // alfa por vértice: se desvanece hacia la mano; un pliegue algo más oscuro en la articulación
+  const p = geo.attributes.position, col = new Float32Array(p.count * 4);
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i), crease = 1 - 0.12 * (1 - smoothstep(0, 0.003, Math.abs(y - 0.027)));
+    col.set([crease, crease * 0.97, crease * 0.97, 1 - smoothstep(len * 0.5, len, y)], i * 4);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  const body = new THREE.Mesh(geo, skin);
   const nail = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), nailMat);
-  nail.scale.set(r * 0.78, r * 1.25, r * 0.38);
-  nail.position.set(0, r * 1.25, r * 0.78);
-  // un nudillo marcado
-  const knuckle = new THREE.Mesh(new THREE.TorusGeometry(r * 1.0, r * 0.12, 6, 18), skin);
-  knuckle.rotation.x = Math.PI / 2;
-  knuckle.position.y = r + 0.032;
-  const knuckle2 = knuckle.clone();
-  knuckle2.position.y = r + 0.062;
-  knuckle2.scale.setScalar(1.06);
-  group.add(body, nail, knuckle, knuckle2);
+  nail.scale.set(r * 0.68, r * 1.15, r * 0.3);
+  nail.position.set(0, r * 1.55, r * 0.8);
+  group.add(body, nail);
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.raycast = () => {}; } });
   group.visible = false;
   return {
-    group,
+    group, skin, nailMat,
     dispose() {
       group.removeFromParent();
       group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
@@ -245,6 +255,7 @@ export class ProofStage extends Stage {
     this.state.proof1 = { ...this.state.proof1, spot: spot.id, tempC: spot.tempC };
     this.ui.toast(`${spot.label} (${spot.tempC} °C): ${spot.note}${spot.id === 'nevera' ? ' La cámara rápida irá ×4.' : ''}`, { tone: 'info', duration: 3.4 });
     this.audio?.play('click');
+    if (this.phase === 'proofing' || this.phase === 'poking') this.instructProofing();
     this.syncControls();
     this.refreshHud(true);
   }
@@ -277,13 +288,31 @@ export class ProofStage extends Stage {
     if (!ok) { this.phase = 'cover'; this.syncControls(); return; }
     this.phase = 'proofing';
     this.goView('bowl', 1.2);
+    this.instructProofing();
+    this.syncControls();
+    this.refreshHud(true);
+  }
+
+  /** Instrucción mientras fermenta (el consejo depende de dónde está; mismo título: no se reanima). */
+  instructProofing() {
     const [rLo, rHi] = this.idealRise();
     const target = this.guided ? `crezca a ×${dec(rLo)}–×${dec(rHi)}` : 'doble su volumen';
     this.instruct('Deja que doble su volumen',
       `Deja correr el tiempo (cámara rápida) hasta que ${target}. Si dudas, haz la prueba del dedo. Si se pasa, se viene abajo.`,
       this.fridge ? 'En la nevera tarda horas: usa «Rápido» o «Adelantar 1 h».' : 'Cuando el paño empiece a abombarse, ya casi está.');
-    this.syncControls();
-    this.refreshHud(true);
+  }
+
+  /**
+   * Quita el paño y acerca la cámara cuando ya está doblado y se va a su sitio
+   * (si no, la tela plana cruzaría por delante de la cámara).
+   * @returns {Promise<boolean>} lo que devuelve tools.cloth.uncover()
+   */
+  async uncoverThenView(name, duration) {
+    const phase = this.phase;
+    const uncovering = this.models.tools.cloth.uncover();
+    await Promise.race([uncovering, animate({ duration: UNCOVER_LIFT, tag: TAG, ease: ease.linear })]);
+    if (!this.leaving && this.phase === phase) this.goView(name, duration);
+    return uncovering;
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -294,7 +323,7 @@ export class ProofStage extends Stage {
     this.time += dt;
     if (this.leaving) return;
     const { tools } = this.models;
-    if (this.phase === 'proofing' && !this.dialogOpen && !this.finishing) {
+    if (this.phase === 'proofing' && !this.dialogOpen && !this.game.simPaused && !this.finishing) {
       let dtMin = TIME_SPEEDS[this.speed] * (this.fridge ? FRIDGE_BOOST : 1) * dt;
       if (this.skip > 0) {
         const k = Math.min(this.skip, SKIP_RATE * dt);
@@ -416,8 +445,7 @@ export class ProofStage extends Stage {
     this.syncControls();
     const pr = this.state.proof1;
     const res = pokeTest(pr.p, this.bread.proof1Ideal);
-    this.goView('poke', 1.1);
-    let ok = await tools.cloth.uncover();
+    let ok = await this.uncoverThenView('poke', 1.1);
     if (this.leaving || this.phase !== 'poking') return;
     if (!ok) tools.cloth.reset();
 
@@ -429,7 +457,10 @@ export class ProofStage extends Stage {
     const axis = V(0.55, 0.78, 0.42).normalize();
     const above = hit.clone().addScaledVector(axis, 0.11);
     const pressed = hit.clone().addScaledVector(axis, -0.014);
-    f.group.quaternion.setFromUnitVectors(V(0, 1, 0), axis);
+    // la uña mira hacia la cámara
+    const toCam = this.engine.camera.position.clone().sub(hit);
+    const nailDir = toCam.addScaledVector(axis, -toCam.dot(axis)).normalize();
+    f.group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(V().crossVectors(axis, nailDir), axis, nailDir));
     f.group.position.copy(above);
     f.group.visible = true;
     f.fade = 0;
@@ -473,11 +504,13 @@ export class ProofStage extends Stage {
     return hit ? dough.group.worldToLocal(hit.point.clone()) : V(x, top * 0.97, z);
   }
 
-  /** El dedo se desvanece al entrar y salir (sin pegarse a la cámara). */
+  /** El dedo aparece y se desvanece al entrar y salir (sin pegarse a la cámara). */
   updateFinger() {
     const f = this.finger;
     if (!f?.group.visible) return;
-    f.group.scale.setScalar(lerp(0.85, 1, clamp(f.fade ?? 1)));
+    const k = clamp(f.fade ?? 1);
+    f.group.scale.setScalar(lerp(0.85, 1, k));
+    f.skin.opacity = f.nailMat.opacity = smoothstep(0, 0.35, k);
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -523,8 +556,7 @@ export class ProofStage extends Stage {
     this.syncControls();
     if (this.finger) this.finger.group.visible = false;
     // se quita el paño y se ve lo que ha crecido
-    this.goView('reveal', 1.3);
-    const ok = await tools.cloth.uncover();
+    const ok = await this.uncoverThenView('reveal', 1.3);
     if (this.leaving) return;
     if (!ok) tools.cloth.reset();
     const fin = proofStatus(this.state.proof1.p, [lo, hi]);
@@ -538,7 +570,8 @@ export class ProofStage extends Stage {
     } else {
       this.ui.toast(this.state.proof1.collapse > 0.04 ? 'Se ha venido abajo: fermentó de más.' : `Ha crecido de más (×${rise}).`, { tone: 'warn' });
     }
-    const done = await animate({ duration: 1.1, tag: TAG, ease: ease.linear });
+    // (la cámara llega a la vista de cerca algo después de quitar el paño: deja verla un momento)
+    const done = await animate({ duration: 1.6, tag: TAG, ease: ease.linear });
     if (!done || this.leaving) return;
     this.complete();
   }

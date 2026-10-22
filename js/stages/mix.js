@@ -90,6 +90,7 @@ export class MixStage extends Stage {
     this.mixed = false;
     this.leaving = false;
     this.hovering = false;
+    this.reframe = false;      // cambio de tamaño durante un giro: se reencuadra al soltar
     this.lastPct = -1;
     this.center = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
@@ -132,14 +133,23 @@ export class MixStage extends Stage {
     const down = (e) => this.onKey(e, true), up = (e) => this.onKey(e, false);
     const blur = () => { this.setAuto(false, 'key'); this.endDrag(); };
     const leave = () => { if (this.dragId == null) this.setHover(false); };
+    // al girar el móvil o cambiar el tamaño de la ventana se vuelve a encuadrar (no a mitad de un giro)
+    const resize = () => {
+      if (this.leaving) return;
+      this.engine.resize();
+      if (this.dragId != null) this.reframe = true;
+      else this.camera(this.view(), { duration: 0.3 });
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
+    window.addEventListener('resize', resize);
     this.engine.canvas.addEventListener('pointerleave', leave);
     this.track(() => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
+      window.removeEventListener('resize', resize);
       this.engine.canvas.removeEventListener('pointerleave', leave);
     });
     if (this.mix >= 1) this.finish();
@@ -283,7 +293,7 @@ export class MixStage extends Stage {
     this.state.mix = 1;
     this.mix = 1;
     this.auto = false;
-    this.dragId = null;
+    this.endDrag(); // (y si quedó pendiente, reencuadra)
     this.engine.setCursor('');
     this.ui.hideHint();
     tools.spoon.setStirring(false);
@@ -404,6 +414,7 @@ export class MixStage extends Stage {
     this.dragId = null;
     this.lastAngle = null;
     this.engine.setCursor(this.hovering && !this.mixed ? 'grab' : '');
+    if (this.reframe && !this.leaving) { this.reframe = false; this.camera(this.view(), { duration: 0.3 }); }
   }
 
   onKey(e, down) {

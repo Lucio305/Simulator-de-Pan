@@ -59,9 +59,20 @@ export class Game {
     this.stageIndex = -1;
     this._busy = false;
     this._runId = 0;
+    this._modal = 0; // diálogos del juego abiertos (ayuda, reiniciar): paran el tiempo simulado
 
     engine.onUpdate((dt, elapsed) => this.update(dt, elapsed));
-    engine.on('pointerdown', (ev) => this.stage?.onPointerDown(ev));
+    engine.on('pointerdown', (ev) => {
+      // Con la cámara libre, arrastrar solo gira la vista: no vierte, no remueve, no corta.
+      if (engine.controls.enabled) {
+        if (!this._freeCamHinted) {
+          this._freeCamHinted = true;
+          ui.toast('Desactiva la cámara libre (icono de la cámara) para manipular.', { tone: 'info' });
+        }
+        return;
+      }
+      this.stage?.onPointerDown(ev);
+    });
     engine.on('pointermove', (ev) => this.stage?.onPointerMove(ev));
     engine.on('pointerup', (ev) => this.stage?.onPointerUp(ev));
 
@@ -88,6 +99,9 @@ export class Game {
 
   get bread() { return BREADS[this.state.breadId]; }
 
+  /** true mientras hay un diálogo del juego abierto: las etapas detienen su reloj simulado. */
+  get simPaused() { return this._modal > 0; }
+
   /** Pantalla de inicio con la cámara paseando por la cocina. */
   async start() {
     this.engine.moveCamera(CAMERAS.intro, { duration: 0 });
@@ -107,6 +121,7 @@ export class Game {
 
   async newRun(breadId, guided = true) {
     this._runId++;
+    this._freeCamHinted = false;
     this.state = createInitialState(breadId, guided);
     this.resetScene();
     this.ui.setStages(STAGES);
@@ -197,14 +212,20 @@ export class Game {
   }
 
   async confirmRestart() {
-    const choice = await this.ui.showDialog({
-      title: '¿Empezar de nuevo?',
-      body: 'Perderás el pan que estás preparando.',
-      actions: [
-        { label: 'Seguir con este pan', variant: 'secondary', value: 'stay' },
-        { label: 'Empezar de nuevo', variant: 'primary', value: 'restart' },
-      ],
-    });
+    let choice;
+    this._modal++;
+    try {
+      choice = await this.ui.showDialog({
+        title: '¿Empezar de nuevo?',
+        body: 'Perderás el pan que estás preparando.',
+        actions: [
+          { label: 'Seguir con este pan', variant: 'secondary', value: 'stay' },
+          { label: 'Empezar de nuevo', variant: 'primary', value: 'restart' },
+        ],
+      });
+    } finally {
+      this._modal--;
+    }
     if (choice === 'restart') this.restart();
   }
 
@@ -219,23 +240,31 @@ export class Game {
     this.ui.setMeters(null);
     this.ui.setClock(null);
     this.ui.setControls(null);
+    // Estado limpio antes de colocar la escena: horno frío y reloj a las 8:30 tras la pantalla de inicio.
+    this.state = createInitialState(this.state.breadId, this.state.guided);
     this.resetScene();
     await this.start();
   }
 
-  showHelp() {
-    this.ui.showDialog({
-      title: 'Cómo se juega',
-      body: [
-        'Sigue los pasos de arriba: pesar, mezclar, amasar, fermentar, formar, hornear y probar.',
-        'Ingredientes: mantén pulsado un recipiente (o el botón «Verter») y suelta cuando la báscula marque la cantidad.',
-        'Mezclar: dibuja círculos con el ratón o el dedo sobre el bol.',
-        'Amasar: arrastra la masa para estirarla y suelta para plegarla. Si se pega, enharina.',
-        'Fermentar y hornear: el tiempo corre deprisa. Tú decides cuándo está lista la masa y cuándo sacar el pan.',
-        'Cámara libre (icono de la cámara): arrastra para girar y usa la rueda para acercarte.',
-      ].join('\n\n'),
-      actions: [{ label: 'Entendido', variant: 'primary', value: 'ok' }],
-    });
+  async showHelp() {
+    this._modal++; // mientras se lee la ayuda, ni el horno ni la masa avanzan
+    try {
+      await this.ui.showDialog({
+        title: 'Cómo se juega',
+        body: [
+          'Sigue los pasos de arriba: pesar, mezclar, amasar, fermentar, formar, hornear y probar.',
+          'Ingredientes: mantén pulsado un recipiente (o el botón «Verter») y suelta cuando la báscula marque la cantidad.',
+          'Mezclar: dibuja círculos con el ratón o el dedo sobre el bol.',
+          'Amasar: arrastra la masa para estirarla y suelta para plegarla. Si se pega, enharina.',
+          'Fermentar y hornear: el tiempo corre deprisa. Tú decides cuándo está lista la masa y cuándo sacar el pan.',
+          'Con teclado: mantén Espacio para verter, remover o amasar.',
+          'Cámara libre (icono de la cámara): arrastra para girar; acerca con la rueda o pellizcando en el móvil.',
+        ].join('\n\n'),
+        actions: [{ label: 'Entendido', variant: 'primary', value: 'ok' }],
+      });
+    } finally {
+      this._modal--;
+    }
   }
 
   loadBest() {

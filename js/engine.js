@@ -79,6 +79,9 @@ export class Engine {
     this.parallaxEnabled = !this.reducedMotion;
 
     this._bindPointer();
+    // Al girar o redimensionar la ventana, la cámara se actualiza antes que los encuadres de las etapas
+    // (este listener se registra primero); el ResizeObserver cubre los cambios del contenedor.
+    window.addEventListener('resize', () => this.resize());
     this._resizeObserver = new ResizeObserver(() => this.resize());
     this._resizeObserver.observe(container);
     this.resize();
@@ -146,6 +149,8 @@ export class Engine {
    * @returns {Promise<boolean>}
    */
   moveCamera({ position, target }, { duration = 1.3, ease: easing = ease.inOutCubic } = {}) {
+    // Última vista pedida por las etapas: la cámara vuelve a ella al salir de la cámara libre.
+    this._guided = { position: position.clone(), target: target.clone() };
     this._cameraAnim?.cancel();
     const fromPos = this.camera.position.clone();
     const fromTarget = this.cameraTarget.clone();
@@ -178,8 +183,12 @@ export class Engine {
   /** Activa/desactiva la cámara libre (OrbitControls). */
   setFreeCamera(enabled) {
     this.controls.enabled = enabled;
-    this.controls.target.copy(this.cameraTarget);
-    if (!enabled) this._basePos = this.camera.position.clone();
+    if (enabled) { this.controls.target.copy(this.cameraTarget); return; }
+    // El regreso parte de la vista real (OrbitControls puede haber desplazado el objetivo).
+    this.cameraTarget.copy(this.controls.target);
+    if (this._cameraAnim) return; // ya va camino de una vista guiada
+    if (this._guided) this.moveCamera(this._guided, { duration: 0.8 });
+    else this._basePos = this.camera.position.clone();
   }
 
   setCursor(cursor) { this.canvas.style.cursor = cursor || ''; }

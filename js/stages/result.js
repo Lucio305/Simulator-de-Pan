@@ -292,6 +292,7 @@ export class ResultStage extends Stage {
     if (this.exited) return;
     if (hot) this.particles?.puff(this.topWorld(-0.03), { color: 0xffffff, count: 26, spread: 0.06, size: 0.04, life: 1.6, rise: 0.22 });
     this.cut = true;
+    this.cutBox = new THREE.Box3().setFromObject(g); // las mitades ya no se mueven: caja para pasar el ratón
     this.busy = false;
     const goodCrumb = crumb && crumb.gumminess <= 0.5 && crumb.tunnels <= 0.5 && crumb.density <= 0.68;
     const burnt = (this.state.bake.crust || 0) >= 1.2;
@@ -319,7 +320,15 @@ export class ResultStage extends Stage {
     try {
       const { dough } = this.models;
       // giro lento de escaparate mientras no se ha cortado
-      if (this.spin && !this.cut && !this.busy) dough.group.rotation.y += dt * SPIN;
+      if (this.spin && !this.cut && !this.busy) {
+        if (this.state.shape?.shape === 'baguette' || this.state.shape?.shape === 'loaf') {
+          // barra y molde: vaivén suave para que no sobresalgan de la rejilla
+          this.swayT = (this.swayT || 0) + dt;
+          dough.group.rotation.y = Math.sin(this.swayT * 0.45) * 0.3;
+        } else {
+          dough.group.rotation.y += dt * SPIN;
+        }
+      }
       // el vapor se va apagando según se enfría
       if (this.vapor) {
         this.vaporT += dt;
@@ -333,7 +342,7 @@ export class ResultStage extends Stage {
         this.hoverT = 0.06;
         const ndc = this.hoverNdc;
         this.hoverNdc = null;
-        this.setHover(this.canPoke() && this.hitBread(ndc));
+        this.setHover(this.canPoke() && this.hitBread(ndc, false));
       }
     } catch (e) {
       if (!this._failed) { this._failed = true; console.error('[result]', e); }
@@ -342,9 +351,22 @@ export class ResultStage extends Stage {
 
   canPoke() { return !this.busy && !this.panelOpen && !this.exited; }
 
-  hitBread(ndc) {
+  /**
+   * ¿El puntero está sobre el pan? Al pasar el ratón basta su caja (la malla entera cuesta milisegundos por
+   * rayo); con `exact`, rayo solo contra las mallas visibles del pan, sin recorrer las ocultas.
+   */
+  hitBread(ndc, exact = true) {
     const { dough } = this.models;
-    return this.engine.raycast(ndc, dough.group).some((h) => h.object.visible && h.object.userData.dough);
+    const ray = this.engine.raycaster;
+    ray.setFromCamera(ndc, this.engine.camera);
+    this.breadBox ??= new THREE.Box3();
+    const box = this.cut && this.cutBox ? this.cutBox
+      : this.breadBox.copy(dough.mesh.geometry.boundingBox).applyMatrix4(dough.mesh.matrixWorld);
+    if (!ray.ray.intersectsBox(box)) return false;
+    if (!exact) return true;
+    const meshes = [];
+    dough.group.traverseVisible((o) => { if (o.isMesh && o.userData.dough) meshes.push(o); });
+    return this.engine.raycast(ndc, meshes, false).length > 0;
   }
 
   setHover(on) {

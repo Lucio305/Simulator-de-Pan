@@ -102,8 +102,10 @@ export function makeHighlighter(root, color = 0xffc56b) {
 /** "1 h 05 min" / "45 min" / "3 min 20 s" a partir de minutos simulados. */
 export function formatMinutes(min) {
   if (min < 10 && min % 1 !== 0) {
-    const m = Math.floor(min), s = Math.round((min - m) * 60);
-    return m > 0 ? `${m} min ${String(s).padStart(2, '0')} s` : `${s} s`;
+    // Redondea los segundos totales primero: 0,995 min es «1 min 00 s», no «60 s».
+    const sec = Math.round(min * 60);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    if (sec < 600) return m > 0 ? `${m} min ${String(s).padStart(2, '0')} s` : `${s} s`;
   }
   const total = Math.round(min);
   const h = Math.floor(total / 60), m = total % 60;

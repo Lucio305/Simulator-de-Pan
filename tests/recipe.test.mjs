@@ -380,6 +380,12 @@ describe('horneado: calibración', () => {
       assert.ok(Math.abs(a - ra) <= 3, `${id}: inicio ${a} vs ${ra}`);
     }
     assert.equal(idealBakeWindow('hogaza', { ovenC: 150 }).minutes, null);
+    // la forma real cambia la ventana: una barra hecha bola tarda más
+    const bag = idealBakeWindow('baguette', { shape: 'baguette' });
+    const boule = idealBakeWindow('baguette', { shape: 'boule' });
+    assert.notDeepEqual(boule.minutes, bag.minutes);
+    assert.ok(boule.minutes[0] > bag.minutes[0] + 4, `${boule.minutes} vs ${bag.minutes}`);
+    assert.deepEqual(idealBakeWindow('baguette').minutes, bag.minutes);
   });
 });
 
@@ -514,8 +520,87 @@ describe('evaluación', () => {
     const res = evaluate({ ...st, amounts: { ...st.amounts, water: 412 } });
     assert.match(section(res, 'ingredients').note, /412 ml de agua en lugar de 350 ml: hidratación del 82 %/);
     const lazy = evaluate({ ...st, knead: { gluten: 0.45, strokes: 8, extraFlour: 0 } });
-    assert.match(section(lazy, 'knead').note, /8 amasados/);
+    assert.match(section(lazy, 'knead').note, /8 amasadas/);
     assert.match(section(lazy, 'knead').note, /45 %/);
+    // la ventana solo si se hizo la prueba
+    assert.match(section(evaluate({ ...st, knead: { ...st.knead, windowpane: true } }), 'knead').note, /prueba de la ventana/);
+    assert.match(section(evaluate({ ...st, knead: { ...st.knead, windowpane: false } }), 'knead').note, /lisa y elástica/);
+    // minutos con dos cifras cuando hay horas, como el HUD
+    const long = evaluate({ ...st, proof1: { ...proofStep(initialProof(22), 185, { amounts: st.amounts, tempC: 22 }) } });
+    assert.match(section(long, 'proof').note, /3 h 05 min/);
+  });
+
+  test('una fase suspendida o sin sal no llega a "Maestro panadero"', () => {
+    const st = perfectState('molde');
+    const amounts = { ...st.amounts, salt: 0 };
+    const noSalt = evaluate({ ...st, amounts });
+    assert.ok(noSalt.total <= 85, `sin sal ${noSalt.total}`);
+    assert.notEqual(noSalt.title, 'Maestro panadero');
+    assert.ok(!noSalt.summary.startsWith('¡'), noSalt.summary);
+    const bg = perfectState('baguette');
+    const lazy = evaluate({ ...bg, knead: { gluten: 0.25, strokes: 4, extraFlour: 0 } });
+    assert.ok(lazy.total <= 85, `poco amasado ${lazy.total}`);
+    assert.notEqual(lazy.title, 'Maestro panadero');
+    assert.equal(evaluate(perfectState('hogaza')).title, 'Maestro panadero');
+  });
+
+  test('hidratación del 120 % → miga cerrada, no la mejor', () => {
+    const st = perfectState('baguette');
+    const c = crumbFromState({ ...st, amounts: { ...st.amounts, water: 600 } });
+    assert.ok(c.openness < 0.5, `openness ${c.openness}`);
+    assert.ok(c.openness < crumbFromState(st).openness);
+  });
+
+  test('forma equivocada: los cortes se valoran según la forma real', () => {
+    const st = perfectState('baguette');
+    const loaf = evaluate({ ...st, shape: { shape: 'loaf', scores: 0, topping: 'none' } });
+    assert.equal(section(loaf, 'shape').score, 75);
+    assert.doesNotMatch(section(loaf, 'shape').note, /Sin greñas/);
+    const boule = evaluate({ ...perfectState('molde'), shape: { shape: 'boule', scores: 0, topping: 'none' } });
+    assert.match(section(boule, 'shape').note, /Sin greñas/);
+  });
+
+  test('baguette: 6 cortes son demasiados', () => {
+    const st = perfectState('baguette');
+    const six = evaluate({ ...st, shape: { ...st.shape, scores: 6 } });
+    assert.equal(section(six, 'shape').score, 92);
+    assert.match(section(six, 'shape').note, /acordeón/);
+  });
+
+  test('coberturas combinadas tienen su nota', () => {
+    const st = perfectState('baguette');
+    const res = evaluate({ ...st, shape: { ...st.shape, topping: 'eggwash+sesame' } });
+    assert.match(section(res, 'shape').note, /huevo/);
+    assert.match(section(res, 'shape').note, /sésamo/);
+  });
+
+  test('fermentación: temperatura media y bonus de frío solo con horas en la nevera', () => {
+    const st = perfectState('baguette');
+    const amounts = st.amounts;
+    let p1 = initialProof(22);
+    for (let i = 0; i < 90; i++) p1 = proofStep(p1, 1, { amounts, tempC: 22 });
+    p1 = proofStep(p1, 1, { amounts, tempC: 5 });
+    assert.equal(p1.coldMin, 1);
+    const res = evaluate({ ...st, proof1: p1 });
+    const note = section(res, 'proof').note;
+    assert.match(note, /a 22 °C/);
+    assert.doesNotMatch(note, /5 °C|frío/);
+    // 10 h en la nevera sí tiene bonus
+    let cold = initialProof(5);
+    while (cold.p < 1.05) cold = proofStep(cold, 5, { amounts, tempC: 5 });
+    assert.ok(cold.coldMin >= 120);
+    assert.match(section(evaluate({ ...st, proof1: cold }), 'proof').note, /frío/);
+  });
+
+  test('pan crudo: distinto si estuvo en el horno o no', () => {
+    const st = perfectState('molde');
+    const early = evaluate({ ...st, bake: { ...st.bake, ...bakeFor(5, bakeOpts('molde')) } });
+    assert.equal(early.flags.raw, true);
+    assert.match(section(early, 'bake').note, /Lo sacaste a los 5 min/);
+    assert.match(early.summary, /demasiado pronto/);
+    const never = evaluate({ ...st, bake: { ...st.bake, ...initialBake(24) } });
+    assert.match(section(never, 'bake').note, /no llegó a hornearse/);
+    assert.match(never.summary, /no llegó a pasar por el horno/);
   });
 
   test('estado vacío o roto no lanza y devuelve números finitos', () => {

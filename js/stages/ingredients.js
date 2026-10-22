@@ -10,12 +10,12 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 /**
  * Vistas propias: la fila de recipientes, el bol y la pantalla de la báscula dentro de la zona que deja
  * libre el HUD. Escritorio: desde delante a la izquierda (la bolsa de harina queda a la derecha del
- * panel de instrucciones y el bol a la derecha). Móvil en vertical: centrada en el bol, en la mitad de
- * arriba (la hoja inferior tapa el resto); los recipientes lejanos entran en cuadro al verter.
+ * panel de instrucciones y el bol a la derecha). Móvil en vertical: desde delante a la derecha, con
+ * los seis recipientes, el bol y la báscula en la mitad de arriba (la hoja inferior tapa el resto).
  */
 const VIEWS = {
   wide: { position: V(-1.15, 1.63, 0.92), target: V(-0.79, 1.0, -0.06) },
-  tall: { position: V(-0.58, 1.8, 0.95), target: V(-0.33, 0.8, -0.02) },
+  tall: { position: V(0.14, 1.73, 1.24), target: V(-0.38, 0.83, 0.19) },   // pensada para 390x844
 };
 
 /** Aleja la cámara de su objetivo (pantallas menos panorámicas). */
@@ -46,7 +46,6 @@ export class IngredientsStage extends Stage {
     this.pouring = null;          // id del recipiente que se está vertiendo
     this.pourSource = null;       // 'pointer' | 'hold' | 'key'
     this.pointerId = null;
-    this.downAt = { x: 0, y: 0, limit: 80 };
     this.hovered = null;
     this.pourTime = 0;
     this.flowed = false;
@@ -68,7 +67,7 @@ export class IngredientsStage extends Stage {
   /** Vista según la forma de la pantalla. */
   view() {
     const aspect = this.engine.camera.aspect;
-    if (aspect < 0.8) return VIEWS.tall;
+    if (aspect < 0.8) return aspect < 0.46 ? pull(VIEWS.tall, 0.46 / aspect) : VIEWS.tall;
     return aspect < 1.5 ? pull(VIEWS.wide, 1 + (1.5 - aspect) * 0.5) : VIEWS.wide;
   }
 
@@ -117,14 +116,24 @@ export class IngredientsStage extends Stage {
       if (this.hovered) { this.hovered = null; this.refreshHighlights(); }
       if (!this.pouring) this.ui.hideHint();
     };
+    // al girar el móvil o cambiar el tamaño de la ventana se vuelve a encuadrar
+    // (engine.resize primero: el ResizeObserver puede llegar después y view() leería el aspecto viejo)
+    const resize = () => {
+      if (this.leaving) return;
+      this.engine.resize();
+      this.measureTops();
+      this.camera(this.view(), { duration: 0.3 });
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
+    window.addEventListener('resize', resize);
     this.engine.canvas.addEventListener('pointerleave', leave);
     this.track(() => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
+      window.removeEventListener('resize', resize);
       this.engine.canvas.removeEventListener('pointerleave', leave);
     });
   }
@@ -183,6 +192,7 @@ export class IngredientsStage extends Stage {
     const box = new THREE.Box3();
     for (const id of INGREDIENT_ORDER) {
       const item = this.items[id], home = SPOTS.ingredients[id];
+      if (item.busy && this.tops[id]) continue; // en el aire: se queda la medida de cuando estaba en casa
       let h = 0.2;
       if (!item.busy) { box.setFromObject(item.object); h = box.max.y - home.y; }
       this.tops[id] = V(home.x, home.y + h + 0.015, home.z);
@@ -376,23 +386,14 @@ export class IngredientsStage extends Stage {
     if (this.pouring) return; // un solo recipiente a la vez
     const id = this.pick(ev);
     if (!id) return;
-    this.pointerId = ev.pointerId;
-    // si el dedo o el ratón se alejan mucho de donde se pulsó, se deja de verter
-    const top = this.engine.worldToScreen(this.tops[id]);
-    const base = this.engine.worldToScreen(V(this.tops[id].x, 0.92, this.tops[id].z));
-    this.downAt = { x: ev.x, y: ev.y, limit: Math.max(70, Math.abs(base.y - top.y) * 1.3) };
+    // (el lienzo captura el puntero: aunque lo arrastres hacia el bol sigue vertiendo hasta soltar)
     this.startPour(id, 'pointer');
     this.pointerId = ev.pointerId;
   }
 
   onPointerMove(ev) {
     if (!this.items || this.leaving) return;
-    if (this.pouring) {
-      if (this.pourSource === 'pointer' && ev.pointerId === this.pointerId) {
-        if (Math.hypot(ev.x - this.downAt.x, ev.y - this.downAt.y) > this.downAt.limit) this.stopPour();
-      }
-      return;
-    }
+    if (this.pouring) return;
     if (ev.pointerType === 'touch') return;
     const id = this.dialogOpen ? null : this.pick(ev);
     if (id !== this.hovered) {

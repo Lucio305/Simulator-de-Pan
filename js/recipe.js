@@ -50,13 +50,13 @@ const fmtAmount = (v) => {
 };
 const fmtPct = (ratio01) => `${Math.round(fin(ratio01) * 100)} %`;
 const fmtC = (c) => `${Math.round(fin(c))} °C`;
-// Minutos simulados → "1 h 35 min" / "45 min"
+// Minutos simulados → "1 h 35 min" / "3 h 05 min" / "45 min" (como el HUD)
 function fmtMinutes(min) {
   const total = Math.max(0, Math.round(fin(min)));
   const h = Math.floor(total / 60);
   const m = total % 60;
   if (h === 0) return `${m} min`;
-  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, '0')} min`;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ export const BREADS = deepFreeze({
     bake: { tempC: 240, minutes: [22, 25], steam: 'imprescindible', crustIdeal: [0.7, 0.85] },
     scoring: {
       min: 3,
-      max: 6,
+      max: 5,
       suggestion: 'De 3 a 5 cortes largos, casi paralelos a la barra, que se solapen un tercio.',
     },
     toppings: { suggested: 'none', text: 'Mejor al natural: la corteza dorada y brillante es su seña.' },
@@ -497,7 +497,7 @@ export function riseFromProgress(p) {
  * @param {{minutes?:number,tempC?:number,p?:number}} proof estado anterior (puede ser {} o undefined)
  * @param {number} dtMinutes minutos simulados
  * @param {{amounts?: object, tempC?: number}} env cantidades y temperatura del sitio
- * @returns {{minutes:number,tempC:number,p:number,rise:number,collapse:number}}
+ * @returns {{minutes:number,tempC:number,p:number,rise:number,collapse:number,coldMin:number,degMin:number}}
  */
 export function proofStep(proof, dtMinutes, env) {
   const p0 = obj(proof);
@@ -507,16 +507,19 @@ export function proofStep(proof, dtMinutes, env) {
   const rate = fermentationRate({ amounts: e.amounts, tempC });
   const p = pos(p0.p) + rate * dt;
   const { rise, collapse } = riseFromProgress(p);
-  return { ...p0, minutes: pos(p0.minutes) + dt, tempC, p, rise, collapse };
+  // minutos en frío y grados·minuto: para la temperatura media y el bonus de reposo en frío
+  const coldMin = pos(p0.coldMin) + (tempC <= 8 ? dt : 0);
+  const degMin = pos(p0.degMin) + tempC * dt;
+  return { ...p0, minutes: pos(p0.minutes) + dt, tempC, p, rise, collapse, coldMin, degMin };
 }
 
 /**
  * Estado inicial de una fermentación.
  * @param {number} [tempC=22]
- * @returns {{minutes:number,tempC:number,p:number,rise:number,collapse:number}}
+ * @returns {{minutes:number,tempC:number,p:number,rise:number,collapse:number,coldMin:number,degMin:number}}
  */
 export function initialProof(tempC = 22) {
-  return { minutes: 0, tempC: num(tempC, 22), p: 0, rise: 1, collapse: 0 };
+  return { minutes: 0, tempC: num(tempC, 22), p: 0, rise: 1, collapse: 0, coldMin: 0, degMin: 0 };
 }
 
 /**
@@ -793,7 +796,7 @@ function bakeOptsFor(bread, extra) {
     steam: e.steam !== undefined ? !!e.steam : bread.bake.steam !== 'no',
     eggwash: e.eggwash !== undefined ? !!e.eggwash : bread.toppings.suggested === 'eggwash',
     sugarPct: (r.sugar / r.flour) * 100,
-    shape: bread.shape,
+    shape: typeof e.shape === 'string' ? e.shape : bread.shape, // la forma real (una barra hecha bola tarda más)
     proofP: (bread.proof2Ideal[0] + bread.proof2Ideal[1]) / 2,
     proofIdeal: bread.proof2Ideal,
     gluten: 0.9,
@@ -808,14 +811,15 @@ const bakeWindowCache = new Map();
  * Ventana ideal de horneado simulada: desde que la corteza entra en su rango ideal con el centro
  * a ≥ 95 °C hasta que se sale por arriba.
  * @param {string} breadId
- * @param {{ovenC?:number, steam?:boolean, eggwash?:boolean}} [opts] por defecto, lo recomendado
+ * @param {{ovenC?:number, steam?:boolean, eggwash?:boolean, shape?:string}} [opts] por defecto, lo recomendado
+ *   (shape: la forma que se le dio a la masa; por defecto, la de la receta)
  * @returns {{tempC:number, steam:boolean, minutes:[number,number]|null, crustIdeal:[number,number],
  *   recipeMinutes:[number,number]}} minutes = null si a esa temperatura nunca queda bien
  */
 export function idealBakeWindow(breadId, opts) {
   const bread = getBread(breadId);
   const bo = bakeOptsFor(bread, opts);
-  const key = `${bread.id}|${bo.ovenC}|${bo.steam}|${bo.eggwash}`;
+  const key = `${bread.id}|${bo.ovenC}|${bo.steam}|${bo.eggwash}|${bo.shape}`;
   if (bakeWindowCache.has(key)) return bakeWindowCache.get(key);
   const [cLo, cHi] = bread.bake.crustIdeal;
   let bk = initialBake(24);
@@ -906,7 +910,10 @@ export function crumbFromState(state) {
   // Gumminess: centro poco hecho
   let gumminess = baked ? 1 - smoothstep(82, 95, internalC) : 1;
   if (hEff > 0.8) gumminess += 0.1 * smoothstep(0.8, 0.9, hEff);
-  gumminess = clamp(gumminess);
+  // demasiada agua: la masa se desparrama, sin estructura → miga más cerrada y pastosa
+  const hi = bread.hydrationIdeal[1];
+  const slack = smoothstep(hi + 0.05, hi + 0.3, hEff);
+  gumminess = clamp(gumminess + 0.3 * slack);
 
   if (a.flour <= 0) return { openness: 0, density: 1, gumminess: 1, tunnels: 0 };
   if (noYeast) return { openness: 0.03, density: 1, gumminess: clamp(Math.max(gumminess, 0.25)), tunnels: 0.05 };
@@ -916,12 +923,13 @@ export function crumbFromState(state) {
   openness *= 1 - 0.65 * under;
   openness *= 1 - 0.25 * smoothstep(0, 6, oilPct);
   openness *= lerp(0.6, 1, smoothstep(1.0, 1.22, spring));
+  openness *= 1 - 0.6 * slack;
   openness = clamp(openness + 0.25 * over * (1 - collapse * 0.5));
 
   const rise2 = num(p2.rise, riseFromProgress(P2).rise);
   const riseTotal = Math.max(1, rise2) * spring;
   let density = clamp(1 - (riseTotal - 1) / 1.5) + 0.35 * collapse + 0.25 * under;
-  density = clamp(density);
+  density = clamp(density + 0.3 * slack);
 
   const tunnels = clamp(0.05 + 0.45 * under * smoothstep(0, 0.1, P1 + P2) + 0.7 * over + 0.5 * collapse);
   return { openness: fin(openness), density: fin(density, 1), gumminess: fin(gumminess, 1), tunnels: fin(tunnels) };
@@ -953,6 +961,8 @@ const TOPPING_NOTES = {
   sesame: 'El sésamo le aporta un toque tostado.',
   poppy: 'Las semillas de amapola le quedan de lujo.',
 };
+// Segunda cobertura junto al huevo ('eggwash+sesame'…), para una sola frase
+const SEED_SHORT = { sesame: 'el sésamo, un toque tostado', poppy: 'la amapola, un punto crujiente', flour: 'la harina, un acabado rústico' };
 const SHAPE_NAMES = {
   boule: 'una hogaza redonda',
   baguette: 'una barra',
@@ -1010,15 +1020,17 @@ function sectionKnead(s, a, bread) {
   const parts = [];
   if (mix <= 0.05) parts.push('No llegaste a mezclar: quedó harina seca por todas partes.');
   else if (mix < 0.6) parts.push(`La mezcla se quedó a medias (${fmtPct(mix)}): quedaron grumos de harina seca dentro de la masa.`);
-  const amasados = strokes > 0 ? `${strokes} amasados` : 'el amasado';
+  const amasadas = strokes > 0 ? (strokes === 1 ? '1 amasada' : `${strokes} amasadas`) : 'el amasado';
   if (gluten >= 0.8) {
+    // la ventana solo se menciona si el jugador hizo la prueba
+    const doneTxt = knead.windowpane ? 'la masa pasó la prueba de la ventana.' : 'la masa quedó lisa y elástica.';
     parts.push(strokes > 0
-      ? `Con ${amasados} el gluten llegó al ${fmtPct(gluten)}: la masa pasó la prueba de la ventana.`
-      : `El gluten llegó al ${fmtPct(gluten)}: la masa pasó la prueba de la ventana.`);
+      ? `Con ${amasadas} el gluten llegó al ${fmtPct(gluten)}: ${doneTxt}`
+      : `El gluten llegó al ${fmtPct(gluten)}: ${doneTxt}`);
   } else if (gluten >= 0.6) {
-    parts.push(`Con ${amasados} el gluten se quedó en el ${fmtPct(gluten)}: le faltaron unos minutos para estar elástica.`);
+    parts.push(`Con ${amasadas} el gluten se quedó en el ${fmtPct(gluten)}: le faltaron unos minutos para estar elástica.`);
   } else if (strokes > 0 || gluten > 0) {
-    parts.push(`Con solo ${amasados} el gluten se quedó en el ${fmtPct(gluten)}: la masa no retuvo bien el gas y la miga salió más cerrada.`);
+    parts.push(`Con solo ${amasadas} el gluten se quedó en el ${fmtPct(gluten)}: la masa no retuvo bien el gas y la miga salió más cerrada.`);
   } else {
     parts.push('No llegaste a amasar: sin gluten, la masa no pudo atrapar el gas.');
   }
@@ -1039,6 +1051,10 @@ function sectionProof(s, a, bread, noYeast, noFlour) {
   const m2 = pos(p2.minutes);
   const T1 = num(p1.tempC, 22);
   const T2 = num(p2.tempC, T1);
+  // temperatura media de cada fermentación (tempC es solo el último sitio elegido)
+  const avgT = (pr, m, T) => (m > 0 && num(pr.degMin) > 0 ? num(pr.degMin) / m : T);
+  const T1avg = avgT(p1, m1, T1);
+  const T2avg = avgT(p2, m2, T2);
   const c1 = clamp(num(p1.collapse, riseFromProgress(P1).collapse));
   const c2 = clamp(num(p2.collapse, riseFromProgress(P2).collapse));
   const collapse = Math.max(c1, c2);
@@ -1054,21 +1070,31 @@ function sectionProof(s, a, bread, noYeast, noFlour) {
   const s1 = proofScore(P1, bread.proof1Ideal);
   const s2 = proofScore(P2, bread.proof2Ideal);
   let score = 0.55 * s1 + 0.45 * s2 - 40 * collapse;
-  const cold = (m1 > 0 && T1 <= 8) || (m2 > 0 && T2 <= 8);
+  // bonus de frío: al menos 2 h en la nevera (estados antiguos sin coldMin: último sitio)
+  const coldOf = (pr, m, T) => (pr.coldMin === undefined ? m > 0 && T <= 8 : pos(pr.coldMin) >= 120);
+  const cold = coldOf(p1, m1, T1) || coldOf(p2, m2, T2);
   if (cold && st1 === 'ok') score += 3;
   score = clamp(score, 0, 100);
 
   const rise1 = num(p1.rise, riseFromProgress(P1).rise);
   const where = (T) => `a ${fmtC(T)}`;
+  // parte en la nevera y parte fuera → «en la nevera y a 22 °C» (la nevera está a 5 °C)
+  const whereP = (pr, m, Tavg) => {
+    const cm = pos(pr.coldMin);
+    if (cm > 30 && cm < m - 30) return `en la nevera y ${where((num(pr.degMin) - 5 * cm) / (m - cm))}`;
+    return where(Tavg);
+  };
+  const w1 = whereP(p1, m1, T1avg);
+  const w2 = whereP(p2, m2, T2avg);
   const d1 = () => {
     if (st1 === 'under') {
       if (P1 < 0.05) return 'Te saltaste la primera fermentación: la masa no tuvo tiempo de crecer ni de coger sabor.';
-      return `La primera fermentación se quedó corta (${fmtMinutes(m1)} ${where(T1)}): la masa solo creció un ${Math.round((rise1 - 1) * 100)} %.`;
+      return `La primera fermentación se quedó corta (${fmtMinutes(m1)} ${w1}): la masa solo creció un ${Math.round((rise1 - 1) * 100)} %.`;
     }
     if (st1 === 'over') {
       return c1 > 0.3
-        ? `La primera fermentación se pasó (${fmtMinutes(m1)} ${where(T1)}): la masa creció de más y se vino abajo.`
-        : `La primera fermentación se alargó (${fmtMinutes(m1)} ${where(T1)}) y la masa perdió fuerza.`;
+        ? `La primera fermentación se pasó (${fmtMinutes(m1)} ${w1}): la masa creció de más y se vino abajo.`
+        : `La primera fermentación se alargó (${fmtMinutes(m1)} ${w1}) y la masa perdió fuerza.`;
     }
     return null;
   };
@@ -1085,13 +1111,13 @@ function sectionProof(s, a, bread, noYeast, noFlour) {
     return null;
   };
   const parts = [];
-  const where2 = Math.round(T2) !== Math.round(T1) ? ` ${where(T2)}` : '';
+  const where2 = w2 !== w1 ? ` ${w2}` : '';
   if (st1 === 'ok' && st2 === 'ok') {
-    parts.push(`Primera fermentación de ${fmtMinutes(m1)} ${where(T1)} y segunda de ${fmtMinutes(m2)}${where2}: la masa dobló su volumen y llegó al horno en su punto.`);
+    parts.push(`Primera fermentación de ${fmtMinutes(m1)} ${w1} y segunda de ${fmtMinutes(m2)}${where2}: la masa dobló su volumen y llegó al horno en su punto.`);
   } else if (st1 === 'under' && st2 === 'under' && P1 >= 0.05 && P2 >= 0.05) {
-    parts.push(`Las dos fermentaciones se quedaron cortas (${fmtMinutes(m1)} y ${fmtMinutes(m2)} ${where(T1)}): el pan reventó en el horno y la miga salió densa y apretada.`);
+    parts.push(`Las dos fermentaciones se quedaron cortas (${fmtMinutes(m1)} ${w1} y ${fmtMinutes(m2)} ${w2}): el pan reventó en el horno y la miga salió densa y apretada.`);
   } else if (st1 === 'over' && st2 === 'over') {
-    parts.push(`Las dos fermentaciones se pasaron (${fmtMinutes(m1)} y ${fmtMinutes(m2)} ${where(T1)}): la masa se quedó sin fuerza y el pan salió chato y con sabor ácido.`);
+    parts.push(`Las dos fermentaciones se pasaron (${fmtMinutes(m1)} ${w1} y ${fmtMinutes(m2)} ${w2}): la masa se quedó sin fuerza y el pan salió chato y con sabor ácido.`);
   } else {
     const n1 = d1();
     const n2 = d2();
@@ -1109,7 +1135,11 @@ function sectionShape(s, bread) {
   const shapeId = typeof sh.shape === 'string' ? sh.shape : null;
   const cuts = Math.round(pos(sh.scores));
   const topping = typeof sh.topping === 'string' ? sh.topping : 'none';
-  const { min, max } = bread.scoring;
+  // los cortes se valoran según la forma que tiene de verdad (una barra pide greñas aunque sea masa de molde)
+  const rules = shapeId && shapeId !== bread.shape
+    ? (Object.values(BREADS).find((b) => b.shape === shapeId)?.scoring ?? bread.scoring)
+    : bread.scoring;
+  const { min, max } = rules;
   const parts = [];
   let score = 100;
   let wrongShape = false;
@@ -1123,14 +1153,14 @@ function sectionShape(s, bread) {
   if (min === 0) {
     if (cuts > max) {
       score -= Math.min(20, 6 * (cuts - max));
-      parts.push(`Le hiciste ${cuts} cortes y el pan de molde no los necesita: con uno o ninguno basta.`);
+      parts.push(`Le hiciste ${cuts} cortes y ${shapeId === 'loaf' ? 'el pan de molde' : 'esta forma'} no los necesita: con uno o ninguno basta.`);
     }
   } else if (cuts === 0) {
     score -= 35;
     parts.push('Sin greñas, el pan se abrió por donde quiso y la corteza se rasgó de lado.');
   } else if (cuts < min) {
     score -= 12 * (min - cuts);
-    parts.push(`Con ${cuts} ${cuts === 1 ? 'corte' : 'cortes'} se quedó corto: ${bread.scoring.suggestion}`);
+    parts.push(`Con ${cuts} ${cuts === 1 ? 'corte' : 'cortes'} se quedó corto: ${rules.suggestion}`);
   } else if (cuts > max) {
     score -= Math.min(40, 8 * (cuts - max));
     parts.push(`Con ${cuts} cortes la superficie quedó como un acordeón: con ${min}–${max} basta.`);
@@ -1139,7 +1169,11 @@ function sectionShape(s, bread) {
     const cutTxt = cuts === 0 ? 'sin cortes' : `con ${cuts} ${cuts === 1 ? 'corte limpio' : 'cortes limpios'}`;
     const formed = bread.id === 'molde' ? 'Bien formado' : 'Bien formada';
     parts.push(`${formed} y ${cutTxt}: justo lo que pide ${BREAD_ARTICLE[bread.id] || 'el'} ${bread.name.toLowerCase()}.`);
-    if (TOPPING_NOTES[topping]) parts.push(TOPPING_NOTES[topping]);
+    const tops = topping.split('+').filter((t) => TOPPING_NOTES[t]);
+    const other = tops.find((t) => t !== 'eggwash');
+    if (tops.length === 1) parts.push(TOPPING_NOTES[tops[0]]);
+    else if (tops.length > 1 && tops.includes('eggwash') && SEED_SHORT[other]) parts.push(`El huevo le dio brillo y ${SEED_SHORT[other]}.`);
+    else if (tops.length > 1) parts.push(TOPPING_NOTES[tops[0]]);
   }
   return { score: clamp(score, 0, 100), note: parts.slice(0, 2).join(' '), wrongShape, cuts };
 }
@@ -1182,7 +1216,9 @@ function sectionBake(s, bread) {
 
   const at = Number.isFinite(targetC) ? ` a ${fmtC(targetC)}` : '';
   const parts = [];
-  if (raw) {
+  if (raw && minutes > 1) {
+    parts.push(`Lo sacaste a los ${fmtMinutes(minutes)}${at} con ${fmtC(internalC)} en el centro: por dentro sigue siendo masa cruda.`);
+  } else if (raw) {
     parts.push('El pan no llegó a hornearse: por dentro sigue siendo masa cruda.');
   } else if (burnt) {
     parts.push(`Horneaste ${fmtMinutes(minutes)}${at}: la corteza se quemó y sabe amarga.`);
@@ -1228,14 +1264,17 @@ const PRAISE = {
   molde: '¡Un pan de molde de libro! Tierno, esponjoso y con un dorado brillante.',
 };
 
-function pickSummary(total, f, worstId, bread) {
+function pickSummary(total, f, worstId, bread, sections) {
   const focus = SECTION_FOCUS[worstId] || 'los detalles';
-  if (total >= 90) return PRAISE[bread.id] || PRAISE.hogaza;
+  // el elogio solo si ninguna fase flojeó
+  const allGood = (sections || []).every((sec) => sec.score >= 80) && !f.noSalt;
+  if (total >= 90 && allGood) return PRAISE[bread.id] || PRAISE.hogaza;
   if (total >= 75) return `Un pan muy rico, de los que desaparecen en la mesa. Para bordarlo, cuida ${focus}.`;
   if (total >= 55) return `Vas por buen camino: el pan está apañado, aunque has perdido bastantes puntos en ${focus}.`;
   if (total >= 35) return `Se puede comer, pero te toca practicar ${focus}. ¡A por otra hornada!`;
   if (f.noFlour) return 'Sin harina no hay pan que valga. ¡Empieza pesando la harina!';
   if (f.noYeast) return 'Sin levadura la masa no subió y salió compacta como un ladrillo. La próxima vez, ¡que no falte la levadura!';
+  if (f.rawEarly) return 'Lo sacaste demasiado pronto: por dentro sigue crudo. Espera a que el centro pase de 93 °C y la corteza se dore.';
   if (f.raw) return 'La masa no llegó a pasar por el horno. ¡Mételo bien caliente y espera a que se dore!';
   if (f.burnt) return 'Ese aroma a chimenea lo dice todo: esta vez ganó el horno. Vigila el tiempo y la temperatura.';
   if (f.underbaked) return 'Por fuera parece pan, pero por dentro sigue siendo masa. Déjalo hasta que el centro pase de 93 °C.';
@@ -1309,6 +1348,7 @@ function evaluateUnsafe(state) {
     noYeast,
     noSalt: !noFlour && a.salt <= 0,
     raw: bk.raw,
+    rawEarly: bk.raw && bk.minutes > 1,
     burnt: bk.burnt,
     underbaked: bk.underbaked,
     underProofed: !noYeast && (pr.st1 === 'under' || pr.st2 === 'under'),
@@ -1333,6 +1373,8 @@ function evaluateUnsafe(state) {
   if (noYeast) total = Math.min(total, 30);
   if (bk.burnt) total = Math.min(total, 30);
   if (bk.underbaked && bk.internalC < 88) total = Math.min(total, 34);
+  // una fase suspendida o sin sal: buen pan, pero no de maestro
+  if (sections.some((sec) => sec.score < 60) || flags.noSalt) total = Math.min(total, 85);
   total = Math.round(clamp(fin(total), 0, 100));
   const stars = clamp(Math.round(total / 10) / 2, 0, 5);
 
@@ -1343,7 +1385,7 @@ function evaluateUnsafe(state) {
     total,
     stars,
     title: pickTitle(total, flags),
-    summary: pickSummary(total, flags, worst.id, bread),
+    summary: pickSummary(total, flags, worst.id, bread, sections),
     sections,
     crumb,
     flags,
