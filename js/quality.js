@@ -38,7 +38,7 @@ export function detectSoftwareRenderer(renderer) {
 function loadMode() {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v === 'auto' || v in TIERS ? v : 'auto';
+    return v === 'auto' || Object.hasOwn(TIERS, v) ? v : 'auto';
   } catch {
     return 'auto';
   }
@@ -169,7 +169,7 @@ export function createQuality({ engine, models, onAutoChange }) {
      * @param {'auto'|'alta'|'media'|'baja'} m
      */
     setMode(m) {
-      if (m !== 'auto' && !(m in TIERS)) return;
+      if (m !== 'auto' && !Object.hasOwn(TIERS, m)) return;
       mode = m;
       saveMode(m);
       applyTier(m === 'auto' ? tier : m);

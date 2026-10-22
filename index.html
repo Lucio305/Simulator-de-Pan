@@ -2,19 +2,21 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<!-- Política de seguridad: solo se carga código, estilos y fuentes de este mismo sitio. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cX/veEmuH2uWSP7Va1pvyTSqvUwcPnz4JYB5wM2YAW0='; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
 <title>Pan Casero 3D</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Simulador 3D para hacer pan en casa: pesa, mezcla, amasa, fermenta, forma y hornea tu propio pan.">
 <meta name="theme-color" content="#2a2522">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=DM+Mono:wght@400;500&family=Figtree:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="./css/fonts.css">
 <link rel="stylesheet" href="./css/styles.css">
+<script src="./js/load-error.js"></script>
+<!-- Three.js 0.160.0 incluido en vendor/three (licencia MIT): sin dependencias de otros servidores. -->
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  "three": "./vendor/three/build/three.module.min.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
 } }
 </script>
 </head>
@@ -43,7 +45,6 @@
   <div class="panel noscript">Pan Casero 3D necesita JavaScript para funcionar. Actívalo en tu navegador y recarga la página para empezar a hornear.</div>
 </noscript>
 
-<!-- Si falla la carga de algún módulo, avisa en la pantalla de carga en vez de quedarse esperando. -->
-<script type="module" src="./js/main.js" onerror="var t=document.querySelector('.loading__text');if(t)t.textContent='No se pudo cargar el simulador. Comprueba la conexión y recarga la página.';"></script>
+<script type="module" src="./js/main.js"></script>
 </body>
 </html>

@@ -2,3 +2,11 @@ node_modules/
 dev/
 .DS_Store
 *.log
+.env
+.env.*
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp
+*.local

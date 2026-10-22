@@ -117,7 +117,9 @@ async function boot() {
   await prewarm(engine, models);
 
   const game = new Game({ engine, ui, audio, particles, models, quality });
-  window.__pan = game;
+  // Los atajos de prueba solo existen en desarrollo local, no en la página publicada.
+  const dev = ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (dev) window.__pan = game;
   if (quality.software) {
     ui.toast('Tu navegador dibuja el 3D sin la tarjeta gráfica y irá lento. Activa la aceleración por hardware en su configuración.', { tone: 'warn', duration: 10 });
   }
@@ -125,7 +127,7 @@ async function boot() {
   // Parámetros de desarrollo/pruebas:
   //   ?manual=1  no arranca el bucle; window.__advance(segundos) avanza el tiempo y dibuja al final.
   //   ?stage=<id>&bread=<id>  salta directamente a una etapa (completando las anteriores).
-  const params = new URLSearchParams(location.search);
+  const params = dev ? new URLSearchParams(location.search) : new URLSearchParams();
   if (params.has('manual')) {
     window.__advance = async (seconds = 1, step = 1 / 30) => {
       for (let t = 0; t < seconds; t += step) {
@@ -153,6 +155,9 @@ boot().catch((e) => {
   try {
     (ui ?? createUI()).showError('No se pudo abrir la cocina', 'Ha ocurrido un error al cargar el simulador. Recarga la página para intentarlo de nuevo.');
   } catch {
-    document.body.insertAdjacentHTML('beforeend', '<p style="position:fixed;inset:auto 16px 16px;color:#fff">No se pudo cargar Pan Casero 3D. Recarga la página.</p>');
+    const p = document.createElement('p');
+    p.textContent = 'No se pudo cargar Pan Casero 3D. Recarga la página.';
+    Object.assign(p.style, { position: 'fixed', inset: 'auto 16px 16px', color: '#fff' });
+    document.body.append(p);
   }
 });

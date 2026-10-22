@@ -52,6 +52,8 @@ function el(tag, props = {}, children = []) {
     if (v == null || v === false) continue;
     if (k === 'class') node.className = v;
     else if (k === 'text') node.textContent = v;
+    // estilos como objeto y vía CSSOM (la política de seguridad no permite atributos style en texto)
+    else if (k === 'style' && typeof v === 'object') for (const [p, val] of Object.entries(v)) node.style.setProperty(p, String(val));
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, v === true ? '' : String(v));
   }
@@ -1101,8 +1103,11 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
     for (let i = 0; i < 5; i++) {
       const fillPct = Math.max(0, Math.min(1, value - i)) * 100;
       const t = document.createElement('template');
-      t.innerHTML = `<span class="star" style="--fill:${fillPct}%;--i:${i}"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="star__base" d="${STAR_PATH}"/></svg><span class="star__fill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR_PATH}"/></svg></span></span>`;
-      wrap.append(t.content.firstChild);
+      t.innerHTML = `<span class="star"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="star__base" d="${STAR_PATH}"/></svg><span class="star__fill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR_PATH}"/></svg></span></span>`;
+      const star = t.content.firstChild;
+      star.style.setProperty('--fill', `${fillPct}%`);
+      star.style.setProperty('--i', String(i));
+      wrap.append(star);
     }
     return wrap;
   }
@@ -1129,7 +1134,7 @@ export function createUI({ root = document.getElementById('hud') } = {}) {
       return el('li', { class: `rsec tone-${scoreTone(v)}` }, [
         el('div', { class: 'rsec__top' }, [el('span', { class: 'rsec__label', text: s.label ?? '' }),
           el('span', { class: 'rsec__score' }, [el('b', { text: String(v) }), '/100'])]),
-        el('span', { class: 'rsec__bar', 'aria-hidden': 'true' }, [el('i', { style: `--w:${v}%` })]),
+        el('span', { class: 'rsec__bar', 'aria-hidden': 'true' }, [el('i', { style: { '--w': `${v}%` } })]),
         s.note ? el('p', { class: 'rsec__note', text: s.note }) : null,
       ]);
     }));

@@ -1,0 +1,9 @@
+/* Fuentes alojadas en el propio sitio (sin Google Fonts): así el juego no envía la IP del jugador a terceros.
+   Subconjunto latino (incluye ñ, tildes, ¿ y ¡). Licencia SIL Open Font License: ver fonts/OFL-*.txt. */
+@font-face { font-family: 'Bagel Fat One'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/bagel-fat-one-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'DM Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/dm-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'DM Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('../fonts/dm-mono-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/figtree-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree'; font-style: normal; font-weight: 600; font-display: swap; src: url('../fonts/figtree-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree'; font-style: normal; font-weight: 700; font-display: swap; src: url('../fonts/figtree-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Figtree'; font-style: normal; font-weight: 800; font-display: swap; src: url('../fonts/figtree-latin-800-normal.woff2') format('woff2'); }

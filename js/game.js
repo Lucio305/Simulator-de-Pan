@@ -323,6 +323,7 @@ export class Game {
   async skipTo(id, { breadId = this.state.breadId, guided = true } = {}) {
     const target = STAGES.findIndex((s) => s.id === id);
     if (target < 0) throw new Error(`Etapa desconocida: ${id}`);
+    if (!Object.hasOwn(BREADS, breadId)) breadId = 'hogaza';
     this._runId++;
     try { await this.stage?.exit(); } catch (e) { console.error(e); }
     this.stage = null;
