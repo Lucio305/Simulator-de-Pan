@@ -110,6 +110,7 @@ export class Engine {
   /** Avanza un frame (lo usa el bucle; las pruebas pueden llamarlo a mano sin dibujar). */
   tick(dt, render = true) {
     this.elapsed += dt;
+    this._flushMove?.();
     updateAnimations(dt);
     for (const fn of [...this.updaters]) {
       try { fn(dt, this.elapsed); } catch (e) { console.error(e); }
@@ -230,10 +231,19 @@ export class Engine {
       if (type === 'pointermove' && !this.controls.enabled) this._parallaxTarget.copy(ev.ndc);
       for (const fn of [...this.listeners[type]]) fn(ev);
     };
-    el.addEventListener('pointerdown', (e) => { el.setPointerCapture?.(e.pointerId); wrap('pointerdown')(e); });
-    el.addEventListener('pointermove', wrap('pointermove'));
-    el.addEventListener('pointerup', (e) => { el.releasePointerCapture?.(e.pointerId); wrap('pointerup')(e); });
-    el.addEventListener('pointercancel', wrap('pointerup'));
+    // Los ratones de alta frecuencia mandan decenas de movimientos por frame: se guarda solo el último y se
+    // procesa una vez por frame (en tick), o justo antes de un clic/soltar para conservar el orden.
+    const move = wrap('pointermove');
+    this._flushMove = () => {
+      const e = this._pendingMove;
+      if (!e) return;
+      this._pendingMove = null;
+      move(e);
+    };
+    el.addEventListener('pointermove', (e) => { this._pendingMove = e; });
+    el.addEventListener('pointerdown', (e) => { this._flushMove(); el.setPointerCapture?.(e.pointerId); wrap('pointerdown')(e); });
+    el.addEventListener('pointerup', (e) => { this._flushMove(); el.releasePointerCapture?.(e.pointerId); wrap('pointerup')(e); });
+    el.addEventListener('pointercancel', (e) => { this._flushMove(); wrap('pointerup')(e); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 }

@@ -61,8 +61,16 @@ La simulación es sencilla pero tiene base real:
 
 ## Si va lento
 
-El juego mide la fluidez y se ajusta solo: baja la resolución y, si no basta, la calidad gráfica. También
-puedes elegirla a mano con el botón del velocímetro de la barra superior (Automática, Alta, Media o Baja).
+El juego mide la fluidez y se ajusta solo. Si va lento, baja la resolución y la calidad gráfica, y recuerda
+el nivel que le funcionó en tu equipo para la próxima vez. También puedes elegir el nivel a mano con el botón
+del velocímetro de la barra superior:
+
+| Nivel | Qué quita |
+|---|---|
+| Alta | Nada: sombras suaves, todas las luces y máxima resolución. |
+| Media | Sombras más simples y algo menos de resolución. |
+| Baja | Sin sombras ni lámparas del techo, efectos de brillo y detalle fino de la masa más sencillos. |
+| Mínima | Lo mismo que Baja, con menos resolución todavía. Para ordenadores modestos. |
 
 Si aun así va a tirones, comprueba que el navegador usa la tarjeta gráfica. En Chrome: *Configuración → Sistema →
 «Usar aceleración por hardware cuando esté disponible»*. Sin ella, el 3D va muy lento y el juego te avisa.

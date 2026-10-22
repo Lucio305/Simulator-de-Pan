@@ -361,6 +361,12 @@ vec3 doughPerturb(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDir) {
 const GLSL_COLOR = /* glsl */`
 float dCrust = smoothstep(0.22, 0.85, uBake);
 float dGroove = clamp(vMask.y, 0.0, 1.0);
+#ifdef DOUGH_LOW
+// calidad baja: un solo ruido para el moteado; sin microrrelieve (ampollas, craquelado, grano)
+vec4 dM0 = vec4(0.0, dNoise(dRot * vRest * 380.0), 0.0, 0.0);
+vec2 dHdxy = vec2(0.0);
+float dGrain = 0.5;
+#else
 vec3 dPx = dFdx(vRest), dPy = dFdy(vRest);
 float dFw = length(dPx) + length(dPy);
 float dLod = 1.0 - smoothstep(0.0005, 0.0016, dFw);
@@ -368,6 +374,7 @@ vec4 dM0 = doughMicro(vRest, dCrust, dGroove, dLod);
 vec2 dHdxy = vec2(doughMicro(vRest + dPx, dCrust, dGroove, dLod).x - dM0.x,
                   doughMicro(vRest + dPy, dCrust, dGroove, dLod).x - dM0.x);
 float dGrain = mix(0.5, dNoise(vRest * 2400.0), dLod);
+#endif
 diffuseColor.rgb *= 1.0 + dCrust * ((dM0.y - 0.5) * 0.2 - dM0.z * 0.18 + dM0.w * 0.05);
 diffuseColor.rgb *= 1.0 + (1.0 - dCrust) * (dM0.y - 0.5) * 0.05;
 float dF = clamp(vMask.x, 0.0, 1.0);
@@ -393,6 +400,7 @@ function createDoughMaterial(uniforms) {
     sheen: 1, sheenColor: new THREE.Color(0xf3d7b0), sheenRoughness: 0.45,
     envMapIntensity: 0.6,
   });
+  if (currentDetail === 'low') m.defines = { DOUGH_LOW: '' };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -406,8 +414,28 @@ function createDoughMaterial(uniforms) {
       .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_SHEEN\nmaterial.sheenColor *= mix(1.0, 0.25, dCrust) * (1.0 - dFlour * 0.5);\n#endif');
   };
   m.customProgramCacheKey = () => 'dough-v1';
+  DOUGH_MATERIALS.add(m);
   return m;
 }
+
+// Todos los materiales de masa (cuerpo y mitades del corte), para cambiar su nivel de detalle a la vez.
+const DOUGH_MATERIALS = new Set();
+/**
+ * Detalle del sombreado de la masa: 'high' (microrrelieve completo) o 'low' (mucho más barato por píxel).
+ * @param {'high'|'low'} level
+ */
+export function setDoughDetail(level) {
+  const low = level === 'low';
+  for (const m of DOUGH_MATERIALS) {
+    const isLow = m.defines?.DOUGH_LOW !== undefined;
+    if (isLow === low) continue;
+    m.defines = { ...(m.defines || {}) };
+    if (low) m.defines.DOUGH_LOW = ''; else delete m.defines.DOUGH_LOW;
+    m.needsUpdate = true;
+  }
+  currentDetail = level;
+}
+let currentDetail = 'high';
 
 // ---------------------------------------------------------------------------------------------
 // Corte: contorno de la sección (plano x = 0) y textura de miga
@@ -1487,6 +1515,8 @@ export function createDough(ctx = {}) {
     getTopY: (fresh = true) => { if (fresh || dirty) flush(); return topY; },
     /** Tamaño actual {x, y, z} en metros (pan entero). */
     getSize: (fresh = true) => { if (fresh || dirty) flush(); return { x: size.x, y: size.y, z: size.z }; },
+    /** Detalle del sombreado: 'high' o 'low' (para equipos modestos). */
+    setDetail: setDoughDetail,
     /** Ritmo máximo (veces por segundo) al que se aplican los cambios graduales; 0 = cada frame. */
     setRebuildRate: (hz) => { minInterval = hz > 0 ? 1 / hz : 0; },
     /** Pulso emisivo para indicar que se puede interactuar. */

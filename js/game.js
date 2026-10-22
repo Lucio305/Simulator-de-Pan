@@ -280,12 +280,13 @@ export class Game {
         title: 'Calidad gráfica',
         body: [
           q.describe() + '.',
-          'Si el juego va a tirones, elige «Media» o «Baja»: dibujan menos sombras y luces y bajan la resolución. '
+          'Si el juego va a tirones, elige «Baja» o «Mínima»: quitan sombras y lámparas y bajan la resolución. '
             + 'En «Automática» el juego mide la fluidez y se ajusta solo.',
           q.software ? 'Tu navegador está dibujando el 3D sin la tarjeta gráfica, por eso va lento. Activa la aceleración por hardware en su configuración (en Chrome: Configuración → Sistema → «Usar aceleración por hardware cuando esté disponible») y reinícialo.' : '',
         ].filter(Boolean).join('\n\n'),
         actions: [
           { label: 'Cerrar', variant: 'ghost', value: null },
+          { label: 'Mínima', variant: 'secondary', value: 'minima', icon: mark('minima') },
           { label: 'Baja', variant: 'secondary', value: 'baja', icon: mark('baja') },
           { label: 'Media', variant: 'secondary', value: 'media', icon: mark('media') },
           { label: 'Alta', variant: 'secondary', value: 'alta', icon: mark('alta') },

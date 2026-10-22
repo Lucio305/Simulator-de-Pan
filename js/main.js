@@ -9,7 +9,7 @@ import { createTools } from './models/tools.js';
 import { createIngredients } from './models/ingredients.js';
 import { createDough } from './models/dough.js';
 import { Game } from './game.js';
-import { createQuality } from './quality.js';
+import { createQuality, plannedTier, TIERS } from './quality.js';
 
 /** Deja respirar al navegador para que pinte la barra de carga. */
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -27,11 +27,6 @@ function probeWebGL() {
   } catch {
     return { ok: false, software: false };
   }
-}
-
-/** Nivel de calidad guardado por el jugador ('auto' si no eligió ninguno). */
-function savedQuality() {
-  try { return localStorage.getItem('pan-casero-3d:calidad') || 'auto'; } catch { return 'auto'; }
 }
 
 /**
@@ -79,9 +74,9 @@ async function boot() {
 
   ui.setLoading(0.1, 'Encendiendo las luces de la cocina…');
   await nextFrame();
-  // Antialiasing (MSAA) solo en pantallas de densidad normal: en las de alta densidad la propia resolución
-  // ya suaviza los bordes y el MSAA cuesta mucho. Tampoco sin aceleración por hardware ni en calidad baja.
-  const antialias = !gl.software && savedQuality() !== 'baja' && (window.devicePixelRatio || 1) < 1.5;
+  // Antialiasing (MSAA) solo si se arranca en calidad alta y en pantallas de densidad normal: es de lo más
+  // caro y no se puede cambiar después de crear el contexto WebGL.
+  const antialias = !gl.software && plannedTier({ software: gl.software }) === 'alta' && (window.devicePixelRatio || 1) < 1.5;
   const engine = new Engine(document.getElementById('app'), { quality: antialias ? 'high' : 'low' });
   const audio = createAudio();
   const particles = createParticles({ engine, scene: engine.scene, camera: engine.camera, renderer: engine.renderer });
@@ -109,7 +104,9 @@ async function boot() {
   // Calidad gráfica (antes de compilar: el nivel decide qué luces y sombras hay).
   const quality = createQuality({
     engine, models,
-    onAutoChange: (tier) => ui.toast(`Calidad gráfica ajustada a «${tier}» para que vaya más fluido.`, { tone: 'info', duration: 4 }),
+    onAutoChange: (tier, dir) => ui.toast(dir > 0
+      ? `Calidad gráfica bajada a «${TIERS[tier].label}» para que vaya más fluido.`
+      : `Tu equipo va sobrado: calidad gráfica subida a «${TIERS[tier].label}».`, { tone: 'info', duration: 4 }),
   });
 
   ui.setLoading(0.85, 'Precalentando sombras y materiales…');
