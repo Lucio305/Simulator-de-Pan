@@ -1,38 +1,13 @@
 # Pan Casero 3D
 
-Simulador 3D para hacer pan en el navegador, hecho con **HTML, CSS y JavaScript** y [Three.js](https://threejs.org/).
-Eliges un pan, pesas los ingredientes, mezclas, amasas, dejas fermentar, das forma, greñas, horneas… y al final
-te puntúan el resultado y puedes cortar el pan para ver la miga.
+Un simulador para hacer pan en 3D, desde el saco de harina hasta la rebanada. Eliges un pan, pesas los
+ingredientes, mezclas, amasas, dejas fermentar, das forma, greñas y horneas. Al final te puntúan el
+resultado y puedes cortar el pan para ver la miga.
 
-Todo lo que se ve en 3D (la cocina, el horno, el bol, la masa, el pan, los ingredientes, los utensilios) está
-**modelado en código**: geometría procedural y texturas dibujadas con `<canvas>`. Los sonidos también se generan
-en el momento con la Web Audio API. No hay archivos de modelos, imágenes ni audio.
+**Juega aquí:** <https://lucio305.github.io/Simulator-de-Pan/>
 
-## Cómo abrirlo
-
-El juego usa módulos de JavaScript, así que hay que abrirlo desde un servidor local (no con doble clic en el archivo):
-
-```bash
-npm start                       # o bien: npx serve .
-# alternativa sin Node:
-python3 -m http.server 8080
-```
-
-y abre <http://localhost:8080>. Necesita conexión a internet la primera vez para descargar Three.js y las fuentes.
-
-También funciona tal cual en **GitHub Pages**: en *Settings → Pages* elige «Deploy from a branch», la rama del
-proyecto y la carpeta `/ (root)`. Cada vez que se sube un cambio a esa rama, la página se actualiza sola en un par
-de minutos. El archivo `.nojekyll` hace que GitHub publique los archivos tal cual.
-
-## Si va lento
-
-El juego mide la fluidez y se ajusta solo: baja la resolución interna si los frames tardan demasiado y, si no
-basta, pasa a una calidad menor (menos sombras y luces). También puedes elegir la calidad a mano con el botón
-del velocímetro de la barra superior (**Automática**, **Alta**, **Media** o **Baja**).
-
-Si aun así va a tirones, comprueba que el navegador usa la tarjeta gráfica: en Chrome, *Configuración → Sistema →
-«Usar aceleración por hardware cuando esté disponible»*. Sin ella el 3D se dibuja con el procesador y va muy lento;
-el juego lo detecta y lo avisa.
+Funciona en el navegador del ordenador y del móvil. Toda la cocina, el horno, la masa y los utensilios están
+modelados en 3D, y los sonidos se generan en el momento.
 
 ## Cómo se juega
 
@@ -46,40 +21,52 @@ el juego lo detecta y lo avisa.
 | 6. Hornear | Elige la temperatura y si quieres vapor, precalienta, mete el pan y vigila el color por el cristal. Puedes abrir para mirar (el horno se enfría). Tú decides cuándo sacarlo. |
 | 7. Resultado | Puntuación por etapas con consejos concretos. Corta el pan para ver la miga. |
 
-**Teclado:** en Ingredientes, las teclas 1–6 o ←/→ eligen el ingrediente y la barra espaciadora vierte;
-en Mezclar y Amasar, la barra espaciadora remueve o amasa. Todos los gestos tienen también su botón en el panel inferior.
-El icono de la cámara activa la cámara libre (arrastrar para girar, rueda o pellizco para acercar).
+El **modo guiado** muestra consejos y las zonas ideales en los medidores. Sin él, juegas a ojo, como en casa.
 
-Hay tres panes: **hogaza rústica**, **baguette** y **pan de molde**, cada uno con su receta, tiempos y temperatura.
-El **modo guiado** muestra consejos y las zonas ideales en los medidores; sin él, juegas a ojo, como en casa.
+### Controles
 
-La simulación es sencilla pero tiene base real: la fermentación depende de la levadura, la sal, el azúcar y la
-temperatura; el horno tarda en calentarse y se enfría al abrir la puerta; la corteza se dora por reacción de
-Maillard según la temperatura; el centro del pan tiene que pasar de ~93 °C para no quedar crudo.
+- **Ratón o dedo:** cada paso se hace con gestos sobre la escena (mantener pulsado, dibujar círculos, arrastrar, cortar).
+- **Panel inferior:** todos los gestos tienen también su botón.
+- **Teclado:** en Ingredientes, las teclas 1–6 o ←/→ eligen el ingrediente y la barra espaciadora vierte. En Mezclar y Amasar, la barra espaciadora remueve o amasa.
+- **Barra superior:** sonido, cámara libre (arrastrar para girar, rueda o pellizco para acercar), calidad gráfica, ayuda y reiniciar.
 
-## Estructura
+## Los panes
 
-```
-index.html            página principal (pantalla de carga, contenedores de la escena y la interfaz)
-css/styles.css        estilos de la interfaz (paneles, botones, medidores, diálogos)
-js/main.js            arranque: crea el motor, la interfaz y los modelos
-js/engine.js          renderizador, cámara, luces, bucle y puntero
-js/game.js            estado de la partida y cambio de etapas
-js/stages/*.js        una clase por etapa del juego
-js/recipe.js          simulación y puntuación (sin 3D, con pruebas)
-js/ui.js              interfaz (HUD)
-js/audio.js           sonidos sintetizados
-js/particles.js       harina, vapor, humo, migas, destellos
-js/models/*.js        modelos 3D: cocina, horno, masa, ingredientes y utensilios
-js/core/*.js          animaciones, utilidades y distribución de la cocina
-tests/                pruebas de la simulación (npm test)
-```
+| Pan | Dificultad | Receta | Horno |
+|---|---|---|---|
+| Hogaza rústica | Media | 500 g de harina, 350 ml de agua, 4 g de levadura, 10 g de sal | 230 °C, 35–40 min, con vapor |
+| Baguette | Difícil | 500 g de harina, 340 ml de agua, 5 g de levadura, 10 g de sal | 240 °C, 22–25 min, vapor imprescindible |
+| Pan de molde | Fácil | 500 g de harina, 300 ml de agua, 7 g de levadura, 9 g de sal, 15 g de azúcar, 25 ml de aceite | 190 °C, 28–35 min, sin vapor |
 
-## Pruebas
+## Cómo se puntúa
 
-```bash
-npm test
-```
+Cada etapa recibe una nota de 0 a 100 con un comentario sobre lo que hiciste:
 
-Parámetros útiles para desarrollar: `index.html?stage=bake&bread=baguette` salta directamente a una etapa
-(`ingredients`, `mix`, `knead`, `proof`, `shape`, `bake`, `result`) y `&guided=0` desactiva el modo guiado.
+| Etapa | Peso |
+|---|---|
+| Ingredientes | 20 % |
+| Amasado | 15 % |
+| Fermentación | 25 % |
+| Formado y greñado | 10 % |
+| Horneado | 30 % |
+
+Con la nota final ganas de media a cinco estrellas y un título, de «Pan... comestible» a «Maestro panadero».
+Si algo sale muy mal, el título lo cuenta: «Carbón artesanal», «Piedra de pan»…
+
+La simulación es sencilla pero tiene base real:
+- La fermentación depende de la levadura, la sal, el azúcar y la temperatura.
+- El horno tarda en calentarse y se enfría al abrir la puerta.
+- La corteza se dora según la temperatura.
+- El centro del pan tiene que pasar de unos 93 °C para no quedar crudo.
+
+## Si va lento
+
+El juego mide la fluidez y se ajusta solo: baja la resolución y, si no basta, la calidad gráfica. También
+puedes elegirla a mano con el botón del velocímetro de la barra superior (Automática, Alta, Media o Baja).
+
+Si aun así va a tirones, comprueba que el navegador usa la tarjeta gráfica. En Chrome: *Configuración → Sistema →
+«Usar aceleración por hardware cuando esté disponible»*. Sin ella, el 3D va muy lento y el juego te avisa.
+
+---
+
+Hecho con HTML, CSS y JavaScript, con [Three.js](https://threejs.org/) para el 3D.
